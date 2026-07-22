@@ -42,7 +42,7 @@ class Strategy:
 
     def __init__(self, name, signal, mode, entry_th, tp_pct, max_hold_sec, cooldown=15,
                  sl_pct=None, author="human", min_range=None,
-                 trail_arm=None, trail_gap=None, trend_gate=None):
+                 trail_arm=None, trail_gap=None, trend_gate=None, trail_frac=None):
         self.name = name
         self.signal = signal
         self.mode = mode
@@ -56,6 +56,7 @@ class Strategy:
         self.trail_arm = trail_arm # 追踪止损：浮盈达此值(比例)后武装
         self.trail_gap = trail_gap # 武装后从峰值回撤此值即锁定离场
         self.trend_gate = trend_gate  # 顺势闸门：逆30m动量超此阈值不开仓（迭代39：OBI陷阱教训）
+        self.trail_frac = trail_frac  # 比例追踪：回撤到峰值的(1-frac)即离场，随行情缩放（迭代46：固定gap在小行情全回吐）
         # 状态
         self.pos = 0                 # 0 / +1 多 / -1 空
         self.entry_px = 0.0
@@ -100,7 +101,12 @@ class Strategy:
             reason = None
             if pnl_pct >= self.tp_pct:
                 reason = "tp"
-            elif (self.trail_arm is not None and self.mfe >= self.trail_arm
+            elif (self.trail_frac is not None and self.trail_arm is not None
+                  and self.mfe >= self.trail_arm
+                  and pnl_pct <= self.mfe * (1 - self.trail_frac)):
+                reason = "trail"   # 比例追踪：锁定峰值的(1-frac)，随MFE缩放（迭代46）
+            elif (self.trail_arm is not None and self.trail_gap is not None
+                  and self.mfe >= self.trail_arm
                   and pnl_pct <= self.mfe - self.trail_gap):
                 reason = "trail"
             elif self.sl_pct is not None and pnl_pct <= -self.sl_pct:
@@ -313,6 +319,12 @@ def make_strategies():
         Strategy("顺势·宽追踪", "obi", "mom", 0.45, 0.015, 14400,
                  cooldown=300, sl_pct=0.005, author="agent",
                  trail_arm=0.0025, trail_gap=0.0028, trend_gate=0.15),  # 武装0.25%/回撤放宽至0.28%
+        # ---- 迭代46（宽追踪首笔证伪固定gap：MFE+0.29%但gap0.28%≈MFE→全回吐-0.11）----
+        # 结构性缺陷：固定gap不随行情缩放，小行情等于无保护。正解：按峰值比例回撤。
+        # 锁定峰值60%(回撤40%)：MFE+0.29%→出+0.174 / MFE+0.6%→出+0.36，自动缩放。保留旧策略。
+        Strategy("顺势·比例追踪", "obi", "mom", 0.45, 0.015, 14400,
+                 cooldown=300, sl_pct=0.005, author="agent",
+                 trail_arm=0.0025, trail_frac=0.4, trend_gate=0.15),  # 武装0.25%/锁定峰值60%
     ]
 
 
