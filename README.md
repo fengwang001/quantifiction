@@ -81,56 +81,104 @@ LLM认知层(gemini,30分辩论) ──┘        ↓
 
 ## 六、运行
 
-**准备**（一次）：
+### 6.1 首次准备（只做一次）
 
 ```bash
-uv sync --extra dev                # Python 3.12 依赖
-cp .env.example .env               # 填 OKX(三要素,模拟盘) + GRSAI key
-uv run pytest -q                   # 132 passed（含契约测试=宪法的工程固化）
+uv sync --extra dev                # 装 Python 3.12 依赖
+cp .env.example .env               # 复制模板，填入你的密钥（见下）
+uv run pytest -q                   # 自检：应显示 132 passed
 ```
 
-**一键启动脚本**（自动加载 `.env`，统一管理三个常驻进程：引擎/Agent/看板）：
+编辑 `.env`，至少填这几项（模拟盘密钥在欧易「API」页申请，勾选“模拟交易”）：
 
-| 平台 | 脚本 | 启动全部 | 其他命令 |
-|---|---|---|---|
-| **Windows** | `scripts\quant.ps1` | `.\scripts\quant.ps1 start` | `stop` / `restart` / `status` / `logs engine` |
-| **Linux / macOS** | `scripts/quant.sh` | `./scripts/quant.sh start` | 同上（`logs agent` 等） |
-| **iOS** | 见下 | —— | —— |
+```ini
+OKX_API_KEY=你的key
+OKX_SECRET=你的secret
+OKX_PASSPHRASE=你的passphrase
+OKX_SIMULATED=1                    # 1=模拟盘（强烈建议先跑模拟）
+GRSAI_API_KEY=你的LLM网关key        # Agent 认知层需要
+```
+
+### 6.2 一键启动脚本
+
+脚本会**自动加载 `.env`**、统一管理三个常驻进程，并把 PID 存到 `data/pids/`、日志存到 `data/logs/`。
+三个进程分别是：
+
+| 进程名 | 作用 | 缺了会怎样 |
+|---|---|---|
+| `engine` | 影子引擎：多策略并行纸面交易、进化 | 没有策略回测数据 |
+| `agent` | LLM 认知层：每 30 分钟辩论出观点 | 看板 Agent 面板不更新 |
+| `web` | Web 看板（`http://127.0.0.1:8000`） | 打不开网页 |
+
+**Windows（PowerShell）** — 脚本 `scripts\quant.ps1`：
 
 ```powershell
-# Windows（PowerShell）
-.\scripts\quant.ps1 start           # REST 轮询（默认，读 .env）
-.\scripts\quant.ps1 start -Ws       # WS 实时（经 Clash 混合端口 7890）
-.\scripts\quant.ps1 status          # 查看三进程状态
-.\scripts\quant.ps1 restart -Ws     # 无损重启（恢复持久化状态）
+.\scripts\quant.ps1 start           # 启动全部三进程（REST 轮询，默认）
+.\scripts\quant.ps1 start -Ws       # 启动全部（WS 实时，经 Clash 代理 7890）
+.\scripts\quant.ps1 status          # 查看三进程状态 + 看板地址
 .\scripts\quant.ps1 stop            # 停止全部
-.\scripts\quant.ps1 logs engine     # 跟随某进程日志
+.\scripts\quant.ps1 restart -Ws     # 无损重启（自动恢复持久化的历史成交）
+.\scripts\quant.ps1 logs engine     # 实时跟随某进程日志（engine|agent|web）
+.\scripts\quant.ps1 start engine    # 只启动单个进程
 ```
 
+**Linux / macOS（bash）** — 脚本 `scripts/quant.sh`：
+
 ```bash
-# Linux / macOS（bash）
-./scripts/quant.sh start            # REST 轮询
-./scripts/quant.sh start --ws       # WS 实时（代理，默认 127.0.0.1:7890）
-./scripts/quant.sh start --ws-direct  # WS 实时（服务器直连公网，无需代理）
-./scripts/quant.sh status | stop | restart | logs agent
+chmod +x scripts/quant.sh           # 首次赋可执行权限（仅一次）
+./scripts/quant.sh start            # 启动全部（REST 轮询，默认）
+./scripts/quant.sh start --ws       # 启动全部（WS 实时，走代理，默认 127.0.0.1:7890）
+./scripts/quant.sh start --ws-direct  # WS 实时，服务器直连公网（无需代理）
+./scripts/quant.sh status           # 查看状态
+./scripts/quant.sh stop             # 停止全部
+./scripts/quant.sh restart --ws     # 无损重启
+./scripts/quant.sh logs agent       # 跟随日志
 ./scripts/quant.sh start engine     # 只启动单个（engine|agent|web）
 ```
 
-- WS 代理地址可用环境变量 `QUANT_WS_PROXY` 覆盖（默认 `http://127.0.0.1:7890`）。
-- 进程 PID 存 `data/pids/`，日志存 `data/logs/`。
+**命令速查**（两平台一致，仅 WS 开关写法不同：Windows `-Ws` / unix `--ws`）：
 
-**iOS**：iPhone/iPad 无法原生跑后台服务，两种用法：
-1. **只看看板**——服务跑在同局域网的电脑/服务器上，手机浏览器访问 `http://<主机IP>:8000`（把看板 `--host` 改为 `0.0.0.0`）。
-2. **iSH 终端**（App Store 免费 Alpine Linux）——`apk add python3 bash git` 后可跑 `./scripts/quant.sh`；性能有限，建议只跑看板或做轻量验证。
+| 命令 | 作用 |
+|---|---|
+| `start [--ws\|--ws-direct] [进程名]` | 启动（默认全部；可只启 `engine`/`agent`/`web`） |
+| `stop [进程名]` | 停止 |
+| `restart [--ws] [进程名]` | 无损重启（进程重启后从 `data/shadow_persist.json` 恢复全部历史） |
+| `status` | 列出三进程运行状态与 PID，并打印看板地址 |
+| `logs <进程名>` | 实时跟随该进程日志 |
 
-**行情双模式**（`markets/okx_swap/ws_feed.py`）：
-- **WS 实时**（`WSPoller`）：设 `WS_PROXY` 即启用，后台线程维护实时订单簿(400档)+逐笔，毫秒级更新，
-  断线/冷启动自动 REST 回退。经透传 TLS 的代理（Clash 混合端口 7890）连 `wss://ws.okx.com:8443`——
-  一键启动 `scripts/run_shadow_ws.ps1`。
-- **REST 轮询**（`RestPoller`）：无 WS_PROXY 时回退，~6s/次，走任意 HTTP 代理。
+### 6.3 验证启动成功
 
-> 关键坑：普通 HTTP 代理对 CONNECT 回 200 但不透传 TLS 字节流，WS 握手被 RST；
-> 需 SOCKS5 或 Clash 这类透明隧道代理。上服务器直连则无需代理，设 `OKX_WS_DIRECT=1` 即可。
+```
+.\scripts\quant.ps1 status          # 三行都应显示“运行中”
+```
+
+浏览器打开 `http://127.0.0.1:8000` 能看到看板即成功。若某进程是“停止”，用 `logs <名>` 看报错
+（最常见：`.env` 没填 `GRSAI_API_KEY` → agent 起不来）。
+
+### 6.4 REST 轮询 vs WS 实时，怎么选
+
+- **不加 `--ws`（默认 REST 轮询）**：约 6 秒拉一次行情，走 `.env` 里的 `OKX_BASE_URL`（可配任意 HTTP 代理）。开箱即用，适合大多数场景。
+- **加 `--ws`（WS 实时）**：毫秒级实时订单簿，但需要一个**能透传 TLS 的代理**（如 Clash 混合端口 `7890`）。代理地址可用环境变量 `QUANT_WS_PROXY` 覆盖（默认 `http://127.0.0.1:7890`）。
+- **服务器直连公网**：用 `--ws-direct`（unix）或 `-WsDirect`（Windows），无需任何代理。
+
+### 6.5 各平台首次运行注意
+
+- **Windows 执行策略**：若 `.ps1` 被拦（提示“禁止运行脚本”），任选其一：
+  - 一次性放行：`powershell -ExecutionPolicy Bypass -File scripts\quant.ps1 start`
+  - 永久放行当前用户：`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`
+- **需要 Clash 开着**：用 `--ws` 时若 Clash 未启动，WS 连不上会**自动回退 REST**，不会崩。
+- **iOS**：iPhone/iPad 无法原生跑后台 Python 服务，两种用法：
+  1. **只看看板**——服务跑在同局域网的电脑/服务器上（把看板 host 改为 `0.0.0.0`），手机浏览器访问 `http://<主机IP>:8000`。
+  2. **iSH 终端**（App Store 免费 Alpine Linux）——`apk add python3 bash git` 后可跑 `./scripts/quant.sh`；性能有限，建议只跑看板或轻量验证。
+
+### 6.6 行情双模式实现（`markets/okx_swap/ws_feed.py`）
+- **WS 实时**（`WSPoller`）：环境变量 `WS_PROXY`（或直连 `OKX_WS_DIRECT=1`）存在即启用，后台线程维护
+  实时订单簿(400档)+逐笔，毫秒级更新，断线/冷启动自动 REST 回退。经透传 TLS 的代理连 `wss://ws.okx.com:8443`。
+  ——启动脚本的 `--ws` / `-Ws` 开关会自动设好这些环境变量，通常无需手动导出。
+- **REST 轮询**（`RestPoller`）：无 `WS_PROXY` 时回退，~6s/次，走任意 HTTP 代理。
+
+> 关键坑：普通 HTTP 代理对 CONNECT 回 200 但不透传 TLS 字节流，WS 握手会被 RST 切断；
+> 需 SOCKS5 或 Clash 这类透明隧道代理。上服务器直连则无需代理（`--ws-direct`）。
 
 ## 七、代码结构（src-layout 单包 `quant`）
 
