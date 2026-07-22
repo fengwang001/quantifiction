@@ -42,7 +42,7 @@ class Strategy:
 
     def __init__(self, name, signal, mode, entry_th, tp_pct, max_hold_sec, cooldown=15,
                  sl_pct=None, author="human", min_range=None,
-                 trail_arm=None, trail_gap=None):
+                 trail_arm=None, trail_gap=None, trend_gate=None):
         self.name = name
         self.signal = signal
         self.mode = mode
@@ -55,6 +55,7 @@ class Strategy:
         self.min_range = min_range # 体制过滤：近1h波幅低于此值不入场（动量需要市场在动）
         self.trail_arm = trail_arm # 追踪止损：浮盈达此值(比例)后武装
         self.trail_gap = trail_gap # 武装后从峰值回撤此值即锁定离场
+        self.trend_gate = trend_gate  # 顺势闸门：逆30m动量超此阈值不开仓（迭代39：OBI陷阱教训）
         # 状态
         self.pos = 0                 # 0 / +1 多 / -1 空
         self.entry_px = 0.0
@@ -80,6 +81,13 @@ class Strategy:
                          or feat.get("range1h", 0.0) >= self.min_range)
             if confirmed and cooled and regime_ok:
                 side = cur_dir if self.mode == "mom" else -cur_dir
+                # 顺势闸门（迭代39）：逆30m动量不开仓——旗舰两笔亏损皆逆势开多(MFE仅+0.08)
+                if self.trend_gate is not None:
+                    m30 = feat.get("mom30m", 0.0)
+                    if (side > 0 and m30 < -self.trend_gate) or \
+                       (side < 0 and m30 > self.trend_gate):
+                        self.prev_dir = cur_dir
+                        return
                 self.pos = side
                 self.entry_px = mid
                 self.open_ts = now
@@ -288,6 +296,12 @@ def make_strategies():
         Strategy("均值回归1h", "meanrev1h", "mom", 0.5, 0.008, 7200,
                  cooldown=300, sl_pct=0.005, author="agent",
                  trail_arm=0.0035, trail_gap=0.002),   # 偏离1h均值>0.25%反向回归
+        # ---- 迭代39（旗舰滑落教训：两笔逆势开多被止损，MFE仅+0.08/0.10；同期做空全胜）----
+        # 根因：OBI陷阱——买单堆盘口但价格照跌。对策：叠加顺势闸门，逆30m动量不开仓。
+        # 保留旧「追踪灵敏版」及数据不动，此为其顺势派生版，干净对照顺势过滤的增量价值。
+        Strategy("追踪灵敏·顺势", "obi", "mom", 0.45, 0.015, 14400,
+                 cooldown=300, sl_pct=0.005, author="agent",
+                 trail_arm=0.0025, trail_gap=0.0012, trend_gate=0.15),  # 逆30m动量>0.06%不开仓
     ]
 
 
