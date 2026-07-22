@@ -1,0 +1,24 @@
+# 币种池（spec §8.5）。改配置需重启生效（C3）。欧易 instId 形如 ETH-USDT-SWAP。
+# ⚠️ $100 阶段：欧易永续按张计价，ctVal 小的标的（如 ETH-USDT-SWAP）才能开小仓。
+universe:
+  ETH-USDT-SWAP:
+    tier: live
+    strategies: [liq_reversal]
+    capital_weight: 1.0          # $100 阶段单一 live，权重和须 = 1.0
+    max_notional_usd: 100
+    leverage: 1
+
+  BTC-USDT-SWAP:
+    tier: shadow                 # $100 阶段先影子观察
+    strategies: [liq_reversal]
+
+  SOL-USDT-SWAP:
+    tier: shadow
+    strategies: [liq_reversal]
+
+  DOGE-USDT-SWAP:
+    tier: observe                # 只录数据
+
+constraints:
+  max_live_symbols: 2
+  max_concurrent_positions: 2

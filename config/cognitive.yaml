@@ -1,0 +1,45 @@
+# 认知层配置（spec §6.1）。预算硬上限由 spec_loader 校验（C4）。
+cognitive:
+  enabled: true
+  symbols: [ETHUSDT, BTCUSDT]
+
+  # LLM 接入：grsai OpenAI 兼容端点（模型名按 grsai 支持列表填写）
+  provider:
+    base_url: https://grsaiapi.com          # 国内可改 https://grsai.dakka.com.cn
+    # 分层用模型：便宜→贵。模型字符串由 grsai 决定，以下为占位，按实际可用模型改。
+    models:
+      sentinel: gemini-3.1-flash-lite        # 哨兵：每15min高频，用便宜非推理模型省token
+      researcher: gemini-3.1-pro             # 多空研究员（gpt-5.4 在此供应商失败率高，改用 gemini）
+      trader: gemini-3.1-pro                 # 裁决
+    # grsai 计费（¥/百万 token，input/output 分开）——★ 会随 grsai 调价而变，改这里即可，勿写进代码
+    pricing:
+      gemini-3.1-pro:
+        input_per_m: 1.5
+        output_per_m: 7
+      gemini-3.1-flash-lite:
+        input_per_m: 0.5
+        output_per_m: 3
+    usd_rmb_rate: 7.2          # ★ 汇率也会变，改这里
+    agent_interval_sec: 900    # ★ agent 多久辩论一次（秒）。900=15分钟。改这里即可，重启 agent 生效
+                               #   环境变量 AGENT_INTERVAL 可临时覆盖
+    # 预算上限（USD，宪法政策不变量）。程序将 ¥ 成本按上面汇率折 USD 后与此比较。
+    budget_usd:
+      daily: 1.20
+      monthly: 25
+
+  sentinel:
+    interval: 15m
+
+  deliberation:
+    schedule: ["00:00", "08:00", "16:00"]   # UTC
+    max_per_day: 8                           # 硬上限（防失控）
+    min_interval: 45m
+
+  events:
+    price_move_1h_pct: 5
+    liquidation_spike_usd: 50000000
+    max_per_day: 3
+
+  budget:
+    daily_usd: 1.20        # ≤ 硬上限 1.20
+    monthly_usd: 25        # ≤ 硬上限 25

@@ -1,0 +1,540 @@
+"""影子模式多策略对比引擎（宪法 VI：先验证后加码）。
+
+同时跑多个策略变体，全部只记账、不真下单，但**扣真实手续费**统计净收益。
+目的：在零风险下回答"哪个策略扣费后还赚钱"——绝大多数会被证伪，这正是价值。
+
+结果写 data/shadow_state.json，看板读取展示。
+
+运行：
+    uv run python -m quant.research.shadow_engine
+"""
+from __future__ import annotations
+
+import json
+import math
+import os
+import time
+from decimal import Decimal
+from pathlib import Path
+
+from quant.core.types import LLMSignal
+from quant.markets.okx_swap.okx_client import OKXClient
+from quant.markets.okx_swap.signals import cvd, mid_price, order_book_imbalance
+from quant.markets.okx_swap.ws_feed import RestPoller
+from quant.strategy.fusion import final_score
+
+AGENT_STANCE = Path("data/agent_stance.json")
+SWITCH = Path("data/strategy_switch.json")   # 策略开关（UI/规则可停用，disabled=只出不进）
+OVERRIDES = Path("data/strategy_overrides.json")  # 策略管理模块的人工参数覆盖（热生效）
+
+INST = "ETH-USDT-SWAP"
+POLL_SEC = 3
+NOTIONAL = 100.0                 # 每笔虚拟名义（USD），统一口径便于对比
+TAKER_FEE = 0.0005               # 欧易 taker 单边；往返 = 2×
+ROUNDTRIP_FEE_PCT = TAKER_FEE * 2  # 0.10%
+CVD_SCALE = 2000.0               # CVD 归一化尺度
+OUT = Path(os.getenv("SHADOW_OUT", "data/shadow_state.json"))          # 看板读的展示快照
+PERSIST = Path(os.getenv("SHADOW_PERSIST", "data/shadow_persist.json"))  # 全量状态（重启恢复）
+
+
+class Strategy:
+    """配置驱动的策略变体。signal: obi|cvd；mode: mom(顺势)|rev(反转)。"""
+
+    def __init__(self, name, signal, mode, entry_th, tp_pct, max_hold_sec, cooldown=15,
+                 sl_pct=None, author="human", min_range=None,
+                 trail_arm=None, trail_gap=None):
+        self.name = name
+        self.signal = signal
+        self.mode = mode
+        self.entry_th = entry_th
+        self.tp_pct = tp_pct
+        self.max_hold = max_hold_sec
+        self.cooldown = cooldown
+        self.sl_pct = sl_pct       # 止损（None=无，292笔教训：纯超时出场收集漂移亏损）
+        self.author = author       # provenance：agent 生成的策略标记 author="agent"
+        self.min_range = min_range # 体制过滤：近1h波幅低于此值不入场（动量需要市场在动）
+        self.trail_arm = trail_arm # 追踪止损：浮盈达此值(比例)后武装
+        self.trail_gap = trail_gap # 武装后从峰值回撤此值即锁定离场
+        # 状态
+        self.pos = 0                 # 0 / +1 多 / -1 空
+        self.entry_px = 0.0
+        self.open_ts = 0.0
+        self.prev_dir = 0
+        self.last_close_ts = 0.0
+        # 统计
+        self.trades = []             # 每笔 {dir, entry, exit, gross_pct, net_pct, net_usd, hold, reason, ts}
+        self.equity_curve = [0.0]    # 累计净收益 USD
+
+    def on_tick(self, feat, now):
+        raw = feat[self.signal]
+        cur_dir = 1 if raw > self.entry_th else -1 if raw < -self.entry_th else 0
+        mid = feat["mid"]
+
+        if self.pos == 0:
+            if not getattr(self, "enabled", True):
+                self.prev_dir = cur_dir
+                return   # 已停用：不开新仓（持仓中的会正常走完出场）
+            confirmed = cur_dir != 0 and cur_dir == self.prev_dir
+            cooled = (now - self.last_close_ts) > self.cooldown
+            regime_ok = (self.min_range is None
+                         or feat.get("range1h", 0.0) >= self.min_range)
+            if confirmed and cooled and regime_ok:
+                side = cur_dir if self.mode == "mom" else -cur_dir
+                self.pos = side
+                self.entry_px = mid
+                self.open_ts = now
+                self.mfe = 0.0; self.mae = 0.0
+        else:
+            pnl_pct = (mid - self.entry_px) / self.entry_px * self.pos
+            self.mfe = max(getattr(self, 'mfe', 0.0), pnl_pct)
+            self.mae = min(getattr(self, 'mae', 0.0), pnl_pct)
+            held = now - self.open_ts
+            reason = None
+            if pnl_pct >= self.tp_pct:
+                reason = "tp"
+            elif (self.trail_arm is not None and self.mfe >= self.trail_arm
+                  and pnl_pct <= self.mfe - self.trail_gap):
+                reason = "trail"
+            elif self.sl_pct is not None and pnl_pct <= -self.sl_pct:
+                reason = "sl"
+            elif held > self.max_hold:
+                reason = "time"
+            if reason:
+                self._close(mid, pnl_pct, held, reason, now)
+
+        self.prev_dir = cur_dir
+
+    def _close(self, exit_px, gross_pct, held, reason, now):
+        net_pct = gross_pct - ROUNDTRIP_FEE_PCT
+        net_usd = NOTIONAL * net_pct
+        gross_usd = NOTIONAL * gross_pct
+        fee_usd = NOTIONAL * ROUNDTRIP_FEE_PCT
+        # 买入价/卖出价：多头=先买后卖；空头=先卖后买
+        if self.pos > 0:
+            buy_px, sell_px = self.entry_px, exit_px
+        else:
+            sell_px, buy_px = self.entry_px, exit_px
+        # 买入/卖出时间：多头=先买(开)后卖(平)；空头=先卖(开)后买(平)
+        open_ms, close_ms = int(self.open_ts * 1000), int(now * 1000)
+        if self.pos > 0:
+            buy_ms, sell_ms = open_ms, close_ms
+        else:
+            sell_ms, buy_ms = open_ms, close_ms
+        self.trades.append({
+            "strategy_version_id": getattr(self, "version_id", ""),   # 版本留痕（宪法 V）
+            "dir": "多" if self.pos > 0 else "空",
+            "entry": round(self.entry_px, 2), "exit": round(exit_px, 2),
+            "buy_px": round(buy_px, 2), "sell_px": round(sell_px, 2),
+            "buy_ms": buy_ms, "sell_ms": sell_ms,
+            "gross_pct": round(gross_pct * 100, 4), "net_pct": round(net_pct * 100, 4),
+            "gross_usd": round(gross_usd, 4), "fee_usd": round(fee_usd, 4),
+            "net_usd": round(net_usd, 4), "hold": int(held), "reason": reason,
+            "mfe_pct": round(getattr(self, 'mfe', 0.0) * 100, 4),
+            "mae_pct": round(getattr(self, 'mae', 0.0) * 100, 4),
+            "open_ms": open_ms, "ts": close_ms,
+        })
+        self.equity_curve.append(round(self.equity_curve[-1] + net_usd, 4))
+        self.pos = 0
+        self.last_close_ts = now
+
+    def to_dict(self):
+        """全量序列化（重启恢复用）。"""
+        return {
+            "name": self.name, "signal": self.signal, "mode": self.mode,
+            "entry_th": self.entry_th, "tp_pct": self.tp_pct, "max_hold": self.max_hold,
+            "cooldown": self.cooldown, "pos": self.pos, "entry_px": self.entry_px,
+            "open_ts": self.open_ts, "prev_dir": self.prev_dir,
+            "last_close_ts": self.last_close_ts,
+            "mfe": getattr(self, "mfe", 0.0), "mae": getattr(self, "mae", 0.0),
+            "trades": self.trades, "equity_curve": self.equity_curve,
+        }
+
+    def load_dict(self, d):
+        """按名恢复历史状态（保留代码里的当前参数，只恢复累积数据）。"""
+        self.pos = d.get("pos", 0)
+        self.entry_px = d.get("entry_px", 0.0)
+        self.open_ts = d.get("open_ts", 0.0)
+        self.prev_dir = d.get("prev_dir", 0)
+        self.last_close_ts = d.get("last_close_ts", 0.0)
+        self.mfe = d.get("mfe", 0.0); self.mae = d.get("mae", 0.0)
+        self.trades = d.get("trades", [])
+        self.equity_curve = d.get("equity_curve", [0.0])
+
+    def stats(self):
+        n = len(self.trades)
+        nets = [t["net_usd"] for t in self.trades]
+        grosss = [t["net_usd"] + NOTIONAL * ROUNDTRIP_FEE_PCT for t in self.trades]
+        wins = sum(1 for x in nets if x > 0)
+        net_sum = sum(nets)
+        gross_sum = sum(grosss)
+        fee_sum = n * NOTIONAL * ROUNDTRIP_FEE_PCT
+        # 简易夏普：每笔净收益率的均值/标准差
+        rets = [t["net_pct"] for t in self.trades]
+        sharpe = 0.0
+        if len(rets) > 1:
+            mu = sum(rets) / len(rets)
+            sd = math.sqrt(sum((r - mu) ** 2 for r in rets) / (len(rets) - 1))
+            sharpe = (mu / sd) if sd > 0 else 0.0
+        # 最大回撤
+        peak = self.equity_curve[0]; mdd = 0.0
+        for v in self.equity_curve:
+            peak = max(peak, v)
+            mdd = min(mdd, v - peak)
+        return {
+            "name": self.name, "signal": self.signal, "mode": self.mode,
+            "tp_pct": self.tp_pct * 100, "trades": n, "open": self.pos != 0,
+            "enabled": getattr(self, "enabled", True),
+            "win_rate": round(wins / n * 100, 1) if n else 0.0,
+            "gross_usd": round(gross_sum, 3), "fee_usd": round(fee_sum, 3),
+            "net_usd": round(net_sum, 3), "sharpe": round(sharpe, 3),
+            "max_dd": round(mdd, 3),
+            "equity_curve": self.equity_curve,   # 全历史（与详情弹窗一致，不再截断60点）
+            "recent": self.trades[-8:][::-1],
+        }
+
+
+class AgentStrategy(Strategy):
+    """Agent 增强：LLM 出方向观点(stance/veto)，OBI 出时机，融合决策（宪法 II）。
+
+    - LLM 观点由 agent_runner 独立进程每 15min 更新，经 data/agent_stance.json 读入
+    - veto=true → 不开仓；stance 与 OBI 同向 → 加成；反向 → 削弱
+    - LLM 观点缺失/过期 → 降级为纯 OBI（宪法 II 优雅降级）
+    """
+
+    def __init__(self, name, entry_th=0.45, tp_pct=0.01, max_hold=7200, cooldown=120,
+                 sl_pct=0.006, trail_arm=None, trail_gap=None):
+        # b 修复：agent 出的是"数小时"方向观点 → 只应指挥小时级波段（TP1% 持仓≤2h），
+        # 不再指挥 3 分钟超短单（时间尺度错配是 0% 胜率的根因之一）
+        super().__init__(name, "obi", "mom", entry_th, tp_pct, max_hold, cooldown,
+                         sl_pct=sl_pct, trail_arm=trail_arm, trail_gap=trail_gap)
+        self.llm_stance = 0.0
+        self.llm_veto = False
+        self.llm_age_sec = 1e9
+
+    def set_agent(self, stance, veto, age_sec, half_life):
+        # 观点超过半衰期 → 失效降级
+        if age_sec > half_life > 0:
+            self.llm_stance, self.llm_veto = 0.0, False
+        else:
+            self.llm_stance, self.llm_veto = stance, veto
+        self.llm_age_sec = age_sec
+
+    def on_tick(self, feat, now):
+        obi = feat["obi"]
+        llm = (LLMSignal("okx_swap:ETH-USDT-SWAP", self.llm_stance, 0.6, self.llm_veto, 3600)
+               if (self.llm_stance != 0 or self.llm_veto) else None)
+        fused = final_score(obi, llm)   # 宪法 II 融合
+        cur_dir = 1 if fused > self.entry_th else -1 if fused < -self.entry_th else 0
+        mid = feat["mid"]
+
+        if self.pos == 0:
+            if not getattr(self, "enabled", True):
+                self.prev_dir = cur_dir
+                return
+            confirmed = cur_dir != 0 and cur_dir == self.prev_dir
+            cooled = (now - self.last_close_ts) > self.cooldown
+            if confirmed and cooled:
+                self.pos = cur_dir; self.entry_px = mid; self.open_ts = now
+                self.mfe = 0.0; self.mae = 0.0
+        else:
+            pnl_pct = (mid - self.entry_px) / self.entry_px * self.pos
+            self.mfe = max(getattr(self, 'mfe', 0.0), pnl_pct)
+            self.mae = min(getattr(self, 'mae', 0.0), pnl_pct)
+            held = now - self.open_ts
+            reason = ("tp" if pnl_pct >= self.tp_pct
+                      else "trail" if (self.trail_arm is not None and self.mfe >= self.trail_arm
+                                       and pnl_pct <= self.mfe - self.trail_gap)
+                      else "sl" if (self.sl_pct is not None and pnl_pct <= -self.sl_pct)
+                      else "time" if held > self.max_hold else None)
+            if reason:
+                self._close(mid, pnl_pct, held, reason, now)
+        self.prev_dir = cur_dir
+
+
+def make_strategies():
+    return [
+        Strategy("OBI动量", "obi", "mom", 0.35, 0.0025, 180),
+        Strategy("OBI动量·宽止盈", "obi", "mom", 0.35, 0.006, 300),
+        Strategy("OBI反转", "obi", "rev", 0.55, 0.0025, 120),
+        Strategy("CVD动量", "cvd", "mom", 0.40, 0.0025, 180),
+        Strategy("CVD反转", "cvd", "rev", 0.55, 0.003, 150),
+        # 小时级波段对（b 修复）：同参数一有 LLM 一没有 → 干净归因 agent 价值
+        Strategy("OBI波段(低频对照)", "obi", "mom", 0.45, 0.01, 7200, cooldown=120, sl_pct=0.006,
+                 trail_arm=0.0035, trail_gap=0.002),
+        AgentStrategy("Agent增强(LLM+OBI)", trail_arm=0.0035, trail_gap=0.002),
+        # ---- 迭代1（2026-07-21，292笔教训）：换信号时间尺度 + 非对称止损 ----
+        # 教训①止盈0次触发②分钟级信号毛利≈0纯抛硬币③净亏=手续费
+        Strategy("趋势动量30m", "mom30m", "mom", 0.4, 0.012, 14400,
+                 cooldown=300, sl_pct=0.006, author="agent",
+                 trail_arm=0.0035, trail_gap=0.002),   # 时序动量（新信息源）
+        Strategy("OBI极端反转波段", "obi", "rev", 0.7, 0.008, 7200,
+                 cooldown=300, sl_pct=0.005, author="agent",
+                 trail_arm=0.0035, trail_gap=0.002),   # 极端盘口衰竭反转
+        Strategy("非对称波段3比1", "obi", "mom", 0.45, 0.015, 14400,
+                 cooldown=300, sl_pct=0.005, author="agent"),   # 小亏大赚出场结构
+        # ---- 迭代5（首批平仓教训）：动量2/2止损于窄震荡→动量需要"市场在动"前提 ----
+        Strategy("趋势动量·活跃过滤", "mom30m", "mom", 0.4, 0.012, 14400,
+                 cooldown=300, sl_pct=0.006, author="agent",
+                 min_range=0.005, trail_arm=0.0035, trail_gap=0.002),   # 近1h波幅≥0.5%才入场（体制过滤）
+        # ---- 迭代8（非对称首笔完整实证：MFE+0.37%回吐至SL-0.64$）----
+        Strategy("非对称·追踪止损", "obi", "mom", 0.45, 0.015, 14400,
+                 cooldown=300, sl_pct=0.005, author="agent",
+                 trail_arm=0.0035, trail_gap=0.002),   # 浮盈0.35%武装，回撤0.2%锁定
+        # ---- 迭代21（6例峰值0.14-0.29未武装即回落收负）：测试更灵敏的追踪参数 ----
+        Strategy("追踪灵敏版", "obi", "mom", 0.45, 0.015, 14400,
+                 cooldown=300, sl_pct=0.005, author="agent",
+                 trail_arm=0.0025, trail_gap=0.0012),  # 武装0.25%/回撤0.12%(保本底线)
+        # ---- 迭代13（六仓同向团灭教训）：入场信号族单一→引入异族均值回归 ----
+        Strategy("均值回归1h", "meanrev1h", "mom", 0.5, 0.008, 7200,
+                 cooldown=300, sl_pct=0.005, author="agent",
+                 trail_arm=0.0035, trail_gap=0.002),   # 偏离1h均值>0.25%反向回归
+    ]
+
+
+def _record_tick(book, feat, trades_summary: float) -> None:
+    """行情tick实时落盘（data/ticks/日期.jsonl）：盘口前5档+全部衍生特征。
+    这是可回放回测的原始资产（R11：交易所不提供历史L2，自录不可补拍）。"""
+    try:
+        day = time.strftime("%Y-%m-%d")
+        f = Path("data/ticks") / f"{day}.jsonl"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "ts": int(time.time() * 1000),
+            "mid": feat["mid"], "obi": round(feat["obi"], 4),
+            "cvd": round(trades_summary, 2),
+            "mom30m": round(feat.get("mom30m", 0), 4),
+            "range1h": round(feat.get("range1h", 0), 5),
+            "bids": [[float(p_), float(q)] for p_, q in book.bids[:5]],
+            "asks": [[float(p_), float(q)] for p_, q in book.asks[:5]],
+        }
+        with f.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _daily_archive() -> None:
+    """每日归档（宪法 V）：把全量状态+策略注册表拷入 data/snapshots/{date}/，每天一次。"""
+    day = time.strftime("%Y-%m-%d")
+    dest = Path("data/snapshots") / day
+    marker = dest / ".done"
+    if marker.exists():
+        return
+    dest.mkdir(parents=True, exist_ok=True)
+    import shutil
+    for src in (PERSIST, Path("data/strategy_registry.jsonl"),
+                Path("data/agent_decisions.jsonl")):
+        if src.exists():
+            shutil.copy2(src, dest / src.name)
+    marker.write_text("", encoding="utf-8")
+
+
+_OVERRIDABLE = ("entry_th", "tp_pct", "sl_pct", "trail_arm", "trail_gap",
+                "max_hold", "cooldown", "min_range")
+
+
+def _apply_overrides(strategies) -> None:
+    """人工参数覆盖热生效；变更即重新快照版本（author=human，宪法V留痕）。"""
+    if not OVERRIDES.exists():
+        return
+    try:
+        ov = json.loads(OVERRIDES.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return
+    from quant.research.strategy_registry import snapshot
+    for s_ in strategies:
+        params = ov.get(s_.name)
+        if not params:
+            continue
+        changed = False
+        for k, v in params.items():
+            if k in _OVERRIDABLE and getattr(s_, k, None) != v:
+                setattr(s_, k, v)
+                changed = True
+        if changed:
+            s_.version_id = snapshot(s_, author="human")
+            print(f"[策略管理] {s_.name} 参数已更新 → 版本 {s_.version_id}", flush=True)
+
+
+def _read_switches() -> dict:
+    if SWITCH.exists():
+        try:
+            return json.loads(SWITCH.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+    return {}
+
+
+def _read_agent_stance():
+    if not AGENT_STANCE.exists():
+        return None
+    try:
+        return json.loads(AGENT_STANCE.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def save_persist(strategies, ticks_total, runtime_total):
+    """原子写全量状态（临时文件 + rename，防写一半被杀导致损坏）。"""
+    payload = {
+        "ticks": ticks_total, "runtime_sec": runtime_total,
+        "strategies": [s.to_dict() for s in strategies],
+    }
+    tmp = PERSIST.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(PERSIST)
+
+
+def load_persist(strategies):
+    """启动时恢复。返回 (历史ticks, 历史runtime秒)。"""
+    if not PERSIST.exists():
+        return 0, 0
+    try:
+        data = json.loads(PERSIST.read_text(encoding="utf-8"))
+        by_name = {s["name"]: s for s in data.get("strategies", [])}
+        restored = 0
+        for s in strategies:
+            if s.name in by_name:
+                s.load_dict(by_name[s.name]); restored += len(s.trades)
+        print(f"[恢复] 从持久化载入 {restored} 笔历史成交，累计 {data.get('ticks',0)} ticks", flush=True)
+        return int(data.get("ticks", 0)), int(data.get("runtime_sec", 0))
+    except Exception as e:  # noqa: BLE001
+        print(f"[恢复失败] {e}，从零开始", flush=True)
+        return 0, 0
+
+
+def main():
+    c = OKXClient("x", "x", "x", base_url=os.environ.get("OKX_BASE_URL", "https://www.okx.com"),
+                  simulated=False)   # 行情用实盘公共源：更准且不受模拟盘限流(50013事故 2026-07-22)
+    poller = RestPoller(c, INST, f"okx_swap:{INST}")
+    strategies = make_strategies()
+    OUT.parent.mkdir(parents=True, exist_ok=True)
+
+    px_hist: list[tuple[float, float]] = []   # (ts, mid) 近1h价格史，供时序动量特征
+    ticks_base, runtime_base = load_persist(strategies)   # ★ 恢复历史
+
+    # 策略快照登记（宪法 V）：内容哈希=版本号，人工策略 immutable，成交将关联版本
+    from quant.research.strategy_registry import snapshot
+    for s in strategies:
+        s.version_id = snapshot(s, author=getattr(s, "author", "human"))
+    print("策略快照: " + ", ".join(f"{s.name}={s.version_id}" for s in strategies), flush=True)
+
+    started = time.time()
+    session_ticks = 0
+
+    print(f"影子对比启动：{len(strategies)}个策略 · 扣费{ROUNDTRIP_FEE_PCT*100:.2f}%往返 · "
+          f"每笔名义${NOTIONAL} · 循环{POLL_SEC}s · 持久化={PERSIST}", flush=True)
+
+    while True:
+        try:
+            book = poller.poll_book(depth=20)
+            trades = poller.poll_trades(limit=50)
+            mid_now = float(mid_price(book))
+            px_hist.append((time.time(), mid_now))
+            while px_hist and px_hist[0][0] < time.time() - 3700:
+                px_hist.pop(0)
+
+            def _mom(sec: float, scale: float) -> float:
+                """时序动量：sec 秒前至今的涨跌幅，按 scale 归一到 [-1,1]。"""
+                cutoff = time.time() - sec
+                past = next((p for t0, p in px_hist if t0 >= cutoff), None)
+                if past is None or past <= 0:
+                    return 0.0
+                return max(-1.0, min(1.0, (mid_now - past) / past / scale))
+
+            hi = max((p for _, p in px_hist), default=mid_now)
+            lo = min((p for _, p in px_hist), default=mid_now)
+            avg1h = (sum(p for _, p in px_hist) / len(px_hist)) if px_hist else mid_now
+            feat = {
+                "range1h": (hi - lo) / mid_now if mid_now else 0.0,
+                "meanrev1h": max(-1.0, min(1.0, (avg1h - mid_now) / mid_now / 0.005)),
+                "obi": order_book_imbalance(book),
+                "cvd": max(-1.0, min(1.0, float(cvd(trades)) / CVD_SCALE)),
+                "mom30m": _mom(1800, 0.004),   # 30分钟涨0.4%→满格（292笔教训：换时间尺度）
+                "mid": mid_now,
+            }
+            _record_tick(book, feat, float(cvd(trades)))
+            now = time.time()
+            switches = _read_switches()
+            for s_ in strategies:
+                s_.enabled = switches.get(s_.name, True)
+            _apply_overrides(strategies)
+            # 读 agent 观点，喂给 AgentStrategy（宪法 II：认知层独立进程经文件传递）
+            agent_view = _read_agent_stance()
+            if agent_view:
+                for s in strategies:
+                    if isinstance(s, AgentStrategy):
+                        age = now - agent_view["ts"] / 1000
+                        s.set_agent(agent_view["stance"], agent_view["veto"], age,
+                                    agent_view.get("half_life_sec", 3600))
+
+            trades_before = sum(len(s.trades) for s in strategies)
+            for s in strategies:
+                s.on_tick(feat, now)
+            trades_after = sum(len(s.trades) for s in strategies)
+            session_ticks += 1
+            ticks = ticks_base + session_ticks
+            runtime = runtime_base + int(now - started)
+
+            # 持久化：有新成交立即存，否则每 10 ticks 存一次
+            if trades_after > trades_before or session_ticks % 10 == 0:
+                save_persist(strategies, ticks, runtime)
+                _daily_archive()
+
+            # 跨策略成交流（所有策略全部平仓合并，按时间倒序）
+            recent_all = []
+            for s in strategies:
+                for t in s.trades:
+                    recent_all.append({**t, "strategy": s.name})
+            recent_all.sort(key=lambda x: x["ts"], reverse=True)
+            total_trades = len(recent_all)
+
+            # 进行中的交易（未平仓，实时浮动盈亏）
+            mid = feat["mid"]
+            open_trades = []
+            for s in strategies:
+                if s.pos == 0:
+                    continue
+                upnl_pct = (mid - s.entry_px) / s.entry_px * s.pos
+                # 若此刻平仓的净盈亏（要扣往返费）
+                net_if_close = NOTIONAL * (upnl_pct - ROUNDTRIP_FEE_PCT)
+                gross_now = NOTIONAL * upnl_pct
+                if s.pos > 0:
+                    buy_px, sell_px = round(s.entry_px, 2), round(mid, 2)
+                else:
+                    sell_px, buy_px = round(s.entry_px, 2), round(mid, 2)
+                open_trades.append({
+                    "strategy": s.name, "dir": "多" if s.pos > 0 else "空",
+                    "qty": round(NOTIONAL / s.entry_px, 5),        # 买了多少(ETH)
+                    "invested": NOTIONAL,                           # 投入资金(USDT)
+                    "cur_value": round(NOTIONAL * (1 + upnl_pct), 3),  # 现在价值(USDT,含方向)
+                    "entry": round(s.entry_px, 2), "cur": round(mid, 2),
+                    "buy_px": buy_px, "sell_px": sell_px,
+                    "open_ms": int(s.open_ts * 1000),
+                    "hold": int(now - s.open_ts),
+                    "upnl_pct": round(upnl_pct * 100, 4),
+                    "gross_usd": round(gross_now, 4),
+                    "net_if_close": round(net_if_close, 4),
+                    "tp_target": round(s.tp_pct * 100, 3),
+                })
+            open_trades.sort(key=lambda x: x["net_if_close"], reverse=True)
+
+            snapshot = {
+                "inst": INST, "ts": int(now * 1000), "ticks": ticks,
+                "runtime_sec": runtime,
+                "fee_roundtrip_pct": ROUNDTRIP_FEE_PCT * 100, "notional": NOTIONAL,
+                "mid": feat["mid"], "obi": round(feat["obi"], 3), "cvd_norm": round(feat["cvd"], 3),
+                "strategies": sorted([s.stats() for s in strategies],
+                                     key=lambda x: x["net_usd"], reverse=True),
+                "total_trades": total_trades,   # 全部成交经 /api/trades 分页取，快照只带总数
+                "open_trades": open_trades,
+                "agent": _read_agent_stance(),
+            }
+            OUT.write_text(json.dumps(snapshot, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:  # noqa: BLE001
+            print(f"[warn] {type(e).__name__}: {str(e)[:60]}", flush=True)
+        time.sleep(POLL_SEC)
+
+
+if __name__ == "__main__":
+    main()

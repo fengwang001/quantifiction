@@ -1,0 +1,555 @@
+"""影子模式多策略对比看板（宪法 VI：先验证后加码）。
+
+读 shadow_engine 写的 data/shadow_state.json，展示各策略扣费后净收益/胜率/夏普/净值曲线。
+★ 纯只读，无任何交易；数据来自影子引擎（零真金风险）。
+
+运行：
+    uv run uvicorn quant.webui.live_dashboard:app --host 127.0.0.1 --port 8000
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, JSONResponse
+
+STATE = Path(os.getenv("SHADOW_OUT", "data/shadow_state.json"))
+PERSIST = Path(os.getenv("SHADOW_PERSIST", "data/shadow_persist.json"))
+
+app = FastAPI(title="Quantifiction 影子策略对比")
+
+
+AGENT_CFG = Path("data/agent_config.json")
+
+
+AGENT_TRIGGER = Path("data/agent_trigger.json")
+SWITCH = Path("data/strategy_switch.json")
+
+
+@app.post("/api/agent/interval")
+def set_agent_interval(sec: int) -> JSONResponse:
+    """页面设置 agent 辩论间隔（秒）。写覆盖文件，agent 每轮重读、无需重启。"""
+    sec = max(120, min(7200, int(sec)))   # 夹在 2分钟~2小时
+    AGENT_CFG.parent.mkdir(parents=True, exist_ok=True)
+    AGENT_CFG.write_text(json.dumps({"interval_sec": sec}), encoding="utf-8")
+    return JSONResponse({"ok": True, "interval_sec": sec})
+
+
+@app.post("/api/agent/run-now")
+def agent_run_now() -> JSONResponse:
+    """页面「立即执行」：写触发信号，agent 在当前等待中会尽快提前辩论。"""
+    import time as _t
+    AGENT_TRIGGER.parent.mkdir(parents=True, exist_ok=True)
+    AGENT_TRIGGER.write_text(json.dumps({"ts": int(_t.time() * 1000)}), encoding="utf-8")
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/strategy/toggle")
+def toggle_strategy(name: str, on: bool) -> JSONResponse:
+    """策略开关：off=只出不进（持仓自然走完出场），数据全保留。引擎每tick热读。"""
+    sw = {}
+    if SWITCH.exists():
+        try:
+            sw = json.loads(SWITCH.read_text(encoding="utf-8"))
+        except Exception:
+            sw = {}
+    sw[name] = bool(on)
+    SWITCH.parent.mkdir(parents=True, exist_ok=True)
+    SWITCH.write_text(json.dumps(sw, ensure_ascii=False), encoding="utf-8")
+    return JSONResponse({"ok": True, "name": name, "enabled": bool(on)})
+
+
+OVERRIDES = Path("data/strategy_overrides.json")
+
+# 策略管理模块的参数校验规则（服务端权威）
+_PARAM_RULES = {
+    "entry_th":  {"type": float, "min": 0.05,   "max": 0.95,  "null": False, "label": "入场阈值"},
+    "tp_pct":    {"type": float, "min": 0.001,  "max": 0.05,  "null": False, "label": "止盈"},
+    "sl_pct":    {"type": float, "min": 0.001,  "max": 0.05,  "null": True,  "label": "止损"},
+    "trail_arm": {"type": float, "min": 0.0005, "max": 0.03,  "null": True,  "label": "追踪武装"},
+    "trail_gap": {"type": float, "min": 0.0003, "max": 0.02,  "null": True,  "label": "追踪回撤"},
+    "max_hold":  {"type": int,   "min": 60,     "max": 86400, "null": False, "label": "最大持仓秒"},
+    "cooldown":  {"type": int,   "min": 0,      "max": 3600,  "null": False, "label": "冷却秒"},
+    "min_range": {"type": float, "min": 0.0005, "max": 0.05,  "null": True,  "label": "体制过滤"},
+}
+
+
+def _validate_params(params: dict) -> list[str]:
+    errs = []
+    for k, v in params.items():
+        rule = _PARAM_RULES.get(k)
+        if rule is None:
+            errs.append(f"未知参数 {k}（不可修改）")
+            continue
+        if v is None:
+            if not rule["null"]:
+                errs.append(f"{rule['label']} 不允许为空")
+            continue
+        try:
+            v = rule["type"](v)
+        except (TypeError, ValueError):
+            errs.append(f"{rule['label']} 类型错误（需{rule['type'].__name__}）")
+            continue
+        if not (rule["min"] <= v <= rule["max"]):
+            errs.append(f"{rule['label']} 超范围（{rule['min']}~{rule['max']}，收到{v}）")
+    ta, tg = params.get("trail_arm"), params.get("trail_gap")
+    if (ta is None) != (tg is None):
+        errs.append("追踪武装与追踪回撤须同时设置或同时留空")
+    elif ta is not None and tg is not None and float(tg) >= float(ta):
+        errs.append(f"追踪回撤({tg})必须小于武装线({ta})，否则武装即触发")
+    sl, tp = params.get("sl_pct"), params.get("tp_pct")
+    if sl is not None and tp is not None and float(sl) > float(tp) * 2:
+        errs.append("止损大于止盈2倍：盈亏比严重不利，请复核")
+    return errs
+
+
+@app.post("/api/strategy/update")
+def update_strategy(payload: dict) -> JSONResponse:
+    """策略管理模块专用：人工修改策略参数。服务端校验 → 写覆盖文件 → 引擎3s内热生效并重新快照版本。"""
+    name = payload.get("name")
+    params = payload.get("params", {})
+    if not name or not isinstance(params, dict) or not params:
+        return JSONResponse({"ok": False, "errors": ["缺少 name 或 params"]})
+    if PERSIST.exists():
+        known = {x["name"] for x in json.loads(PERSIST.read_text(encoding="utf-8")).get("strategies", [])}
+        if name not in known:
+            return JSONResponse({"ok": False, "errors": [f"策略不存在：{name}"]})
+    errs = _validate_params(params)
+    if errs:
+        return JSONResponse({"ok": False, "errors": errs})
+    ov = {}
+    if OVERRIDES.exists():
+        try:
+            ov = json.loads(OVERRIDES.read_text(encoding="utf-8"))
+        except Exception:
+            ov = {}
+    cleaned = {}
+    for k, v in params.items():
+        cleaned[k] = None if v is None else _PARAM_RULES[k]["type"](v)
+    ov.setdefault(name, {}).update(cleaned)
+    OVERRIDES.parent.mkdir(parents=True, exist_ok=True)
+    OVERRIDES.write_text(json.dumps(ov, ensure_ascii=False, indent=1), encoding="utf-8")
+    return JSONResponse({"ok": True, "applied": cleaned,
+                         "note": "已保存，引擎3秒内热生效并生成新版本号"})
+
+
+@app.get("/api/strategy/detail")
+def strategy_detail(name: str) -> JSONResponse:
+    """单策略详情：全部成交（含买卖价/时间/MFE）+ 按平仓时间重建的净值时间线。"""
+    if not PERSIST.exists():
+        return JSONResponse({"ok": False})
+    data = json.loads(PERSIST.read_text(encoding="utf-8"))
+    st = next((x for x in data.get("strategies", []) if x["name"] == name), None)
+    if st is None:
+        return JSONResponse({"ok": False})
+    trades = sorted(st.get("trades", []), key=lambda t: t.get("ts", 0))
+    points, eq = [], 0.0
+    for t in trades:
+        eq = round(eq + t.get("net_usd", 0.0), 4)
+        points.append({"ts": t.get("ts", 0), "eq": eq})
+    wins = sum(1 for t in trades if t.get("net_usd", 0) > 0)
+    # 策略定义与版本历史（strategy_registry.jsonl）
+    versions = []
+    reg = Path("data/strategy_registry.jsonl")
+    if reg.exists():
+        for line in reg.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                r = json.loads(line)
+                if r["definition"]["name"] == name:
+                    versions.append({"version_id": r["version_id"], "ts": r["ts"],
+                                     "author": r["author"], "immutable": r.get("immutable", False),
+                                     "definition": r["definition"]})
+            except Exception:
+                continue
+    versions.sort(key=lambda v: v["ts"])
+    # 有效定义 = 注册表最新 + 当前覆盖（人工修改可能已回退到旧版本内容）
+    eff = dict(versions[-1]["definition"]) if versions else None
+    if eff is not None and OVERRIDES.exists():
+        try:
+            ovp = json.loads(OVERRIDES.read_text(encoding="utf-8")).get(name, {})
+            for k in ("entry_th", "tp_pct", "sl_pct", "max_hold", "cooldown", "min_range"):
+                if k in ovp:
+                    if ovp[k] is None:
+                        eff.pop(k, None)
+                    else:
+                        eff[k] = ovp[k]
+            if "trail_arm" in ovp or "trail_gap" in ovp:
+                ta = ovp.get("trail_arm", (eff.get("trail") or [None, None])[0])
+                tg = ovp.get("trail_gap", (eff.get("trail") or [None, None])[1])
+                if ta is None or tg is None:
+                    eff.pop("trail", None)
+                else:
+                    eff["trail"] = [ta, tg]
+        except Exception:
+            pass
+    cur_vid = next((v["version_id"] for v in versions if v["definition"] == eff), None)
+    return JSONResponse({
+        "ok": True, "name": name, "n": len(trades), "wins": wins,
+        "definition": eff,
+        "current_version": cur_vid,
+        "author": versions[-1]["author"] if versions else None,
+        "versions": versions,
+        "net": round(sum(t.get("net_usd", 0) for t in trades), 3),
+        "points": points,
+        "trades": trades[::-1],   # 表格用倒序（最新在前）
+    })
+
+
+@app.get("/api/trades")
+def trades_page(offset: int = 0, limit: int = 50) -> JSONResponse:
+    """分页返回全部成交（下滑加载更多）。从持久化文件读，按时间倒序。"""
+    if not PERSIST.exists():
+        return JSONResponse({"trades": [], "total": 0})
+    data = json.loads(PERSIST.read_text(encoding="utf-8"))
+    allt = []
+    for s in data.get("strategies", []):
+        for t in s.get("trades", []):
+            allt.append({**t, "strategy": s["name"]})
+    allt.sort(key=lambda x: x.get("ts", 0), reverse=True)
+    return JSONResponse({"trades": allt[offset:offset + limit], "total": len(allt)})
+
+
+@app.get("/api/shadow")
+def shadow() -> JSONResponse:
+    if not STATE.exists():
+        return JSONResponse({"ready": False})
+    data = json.loads(STATE.read_text(encoding="utf-8"))
+    data["ready"] = True
+    # 频率显示以覆盖文件为准（点完按钮立即反映，不等 agent 下一轮写盘）
+    if data.get("agent") and AGENT_CFG.exists():
+        try:
+            data["agent"]["interval_sec"] = json.loads(
+                AGENT_CFG.read_text(encoding="utf-8"))["interval_sec"]
+        except Exception:
+            pass
+    return JSONResponse(data)
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> str:
+    return _HTML
+
+
+_HTML = """<!doctype html><html lang=zh><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Quantifiction 影子策略对比</title>
+<style>
+:root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--fg:#e6edf3;--mut:#8b949e;
+--up:#26a69a;--dn:#ef5350;--acc:#58a6ff;--warn:#d29922}
+*{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--fg);
+font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;padding:20px}
+h1{font-size:18px}.sub{color:var(--mut);font-size:12px;margin:4px 0 14px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--up);margin-right:6px}
+.stale .dot{background:var(--dn)}
+.bar{display:flex;gap:16px;flex-wrap:wrap;color:var(--mut);font-size:12px;margin-bottom:14px}
+.bar b{color:var(--fg)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bd);border-radius:10px;overflow:hidden;font-variant-numeric:tabular-nums;max-width:1200px}
+th,td{padding:10px 12px;text-align:right;font-size:13px;border-bottom:1px solid var(--bd)}
+th{color:var(--mut);font-weight:500;background:#1c2129}
+th:first-child,td:first-child{text-align:left}tr:last-child td{border-bottom:none}
+.up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}
+.spark{height:28px}
+.rank{color:var(--mut);font-size:11px;margin-right:6px}
+.win{color:var(--warn);font-weight:700}
+.note{max-width:1200px;color:var(--mut);font-size:12px;margin-top:12px;line-height:1.7}
+h2{font-size:14px;color:var(--mut);margin:18px 0 8px;font-weight:600;max-width:1200px}
+.trades{max-width:1200px}
+#alltrades table{border:none;border-radius:0}
+#alltrades th{position:sticky;top:0;z-index:2}
+#alltrades::-webkit-scrollbar{width:10px}#alltrades::-webkit-scrollbar-thumb{background:#30363d;border-radius:5px}
+.tag{padding:1px 6px;border-radius:5px;font-size:11px}.tag.l{background:rgba(38,166,154,.15);color:var(--up)}.tag.s{background:rgba(239,83,80,.15);color:var(--dn)}
+.freq{background:#0d1117;color:var(--fg);border:1px solid var(--bd);border-radius:5px;padding:3px 9px;margin-right:5px;cursor:pointer;font-size:12px}
+.freq:hover{border-color:var(--acc)}.freqon{background:#1f6feb;border-color:#1f6feb;color:#fff}
+#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50}
+#modal.on{display:flex;align-items:center;justify-content:center}
+#mbox{background:var(--card);border:1px solid var(--bd);border-radius:12px;width:min(1060px,94vw);max-height:90vh;display:flex;flex-direction:column;padding:18px}
+#mhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+#mhead b{font-size:16px}#mclose{background:none;border:none;color:var(--mut);font-size:22px;cursor:pointer}
+#mchart{margin:6px 0 10px}#mtrades{overflow-y:auto;border:1px solid var(--bd);border-radius:8px}
+#mtrades th{position:sticky;top:0}
+.spark{cursor:pointer}
+</style></head><body>
+<h1>Quantifiction · 影子多策略对比</h1>
+<div class=sub><span id=stat><span class=dot></span>等待影子引擎…</span> · 欧易模拟盘行情 · 零真金 · 扣真实手续费</div>
+<div class=bar id=meta><button class=freq style=margin-left:auto onclick=openMgmt()>⚙ 策略管理</button></div>
+
+<div id=agentbox style=max-width:1200px;margin-bottom:16px></div>
+
+<h2 style=margin-top:0>🔴 进行中的交易（实时浮动盈亏）</h2>
+<div class=trades id=opentrades></div>
+
+<h2>各策略汇总（按扣费净利排序）</h2>
+<table id=tbl><thead><tr>
+<th>策略</th><th>信号/模式</th><th>止盈%</th><th>笔数</th><th>胜率</th>
+<th>毛利$</th><th>手续费$</th><th>净利$</th><th>夏普</th><th>最大回撤$</th><th>净值曲线</th><th>开关</th>
+</tr></thead><tbody id=rows><tr><td colspan=12 class=mut style=text-align:center;padding:24px>加载中…</td></tr></tbody></table>
+
+<h2>成交明细（全部 · 买入价 / 卖出价 / 获利 USDT）<span id=tradecount class=mut></span></h2>
+<div class=trades id=alltrades style="max-height:440px;overflow-y:auto;border:1px solid var(--bd);border-radius:10px"></div>
+
+<div class=note id=verdict></div>
+
+<div id=mgmt onclick="if(event.target.id=='mgmt')closeMgmt()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:60">
+ <div style="background:var(--card);border:1px solid var(--bd);border-radius:12px;width:min(880px,94vw);max-height:90vh;overflow-y:auto;padding:18px" onclick=event.stopPropagation()>
+  <div style=display:flex;justify-content:space-between;align-items:center><b style=font-size:16px>⚙ 策略管理（唯一修改入口）</b><button onclick=closeMgmt() style="background:none;border:none;color:var(--mut);font-size:22px;cursor:pointer">×</button></div>
+  <div class=mut style=font-size:12px;margin:4px_0_10px>修改经服务端格式校验后写入覆盖文件，引擎 3 秒内热生效并自动生成新版本号（旧版本与数据全保留）。百分比参数以 % 填写。</div>
+  <div style=margin-bottom:10px><span class=mut style=font-size:12px>选择策略：</span><select id=mgsel onchange=loadMg() style="background:#0d1117;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 10px;min-width:240px"></select></div>
+  <div id=mgform></div>
+  <div id=mgmsg style=margin-top:10px;font-size:13px></div>
+ </div>
+</div>
+<div id=modal onclick="if(event.target.id=='modal')closeDetail()">
+ <div id=mbox>
+  <div id=mhead><b id=mtitle>—</b><button id=mclose onclick=closeDetail()>×</button></div>
+  <div id=mstats class=mut style=font-size:12px>—</div>
+  <div id=mdef style=margin:8px_0></div>
+  <div id=mchart></div>
+  <div id=mtrades></div>
+  <div class=mut style=font-size:11px;margin-top:8px;line-height:1.7>
+   <b>最大浮盈 MFE%</b>：该笔持仓期间浮动盈利曾达到的最高点——若远高于最终净利，说明利润回吐（追踪止损针对的问题）。
+   <b>最大浮亏 MAE%</b>：期间浮动亏损曾达到的最深点——若从未接近止损线却被止损说明止损过紧；若很深但最终盈利说明入场点位可改善。
+  </div>
+ </div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+async function setFreq(sec){
+  try{const r=await(await fetch('/api/agent/interval?sec='+Math.round(sec),{method:'POST'})).json();
+    $('freqmsg').textContent='已设为每'+Math.round(r.interval_sec/60)+'分钟（下轮生效）';}
+  catch(e){$('freqmsg').textContent='设置失败';}
+}
+function closeDetail(){$('modal').classList.remove('on')}
+function bigChart(pts){
+  if(!pts||pts.length<2)return '<div class=mut style=padding:14px>成交不足，暂无曲线</div>';
+  const w=1000,h=220,pl=46,pr=12,pt=10,pb=26;
+  const t0=pts[0].ts,t1=pts[pts.length-1].ts,tr=(t1-t0)||1;
+  const vs=pts.map(p=>p.eq);const mn=Math.min(0,...vs),mx=Math.max(0,...vs),rg=(mx-mn)||1;
+  const X=ts=>pl+(ts-t0)/tr*(w-pl-pr);
+  const Y=v=>pt+(mx-v)/rg*(h-pt-pb);
+  const line=pts.map(p=>`${X(p.ts).toFixed(1)},${Y(p.eq).toFixed(1)}`).join(' ');
+  const zy=Y(0).toFixed(1);
+  const dots=pts.map((p,i)=>{const d=i?p.eq-pts[i-1].eq:p.eq;const c=d>=0?'#26a69a':'#ef5350';
+    return `<circle cx="${X(p.ts).toFixed(1)}" cy="${Y(p.eq).toFixed(1)}" r="3" fill="${c}"><title>${hms(p.ts)}  净值 ${sg(p.eq,3)}  本笔 ${sg(d,3)}</title></circle>`}).join('');
+  // x轴时间刻度（首/中/末）
+  const ticks=[pts[0],pts[Math.floor(pts.length/2)],pts[pts.length-1]].map(p=>{
+    const d=new Date(p.ts);return `<text x="${X(p.ts).toFixed(1)}" y="${h-6}" fill="#8b949e" font-size="11" text-anchor="middle">${p2(d.getMonth()+1)}-${p2(d.getDate())} ${hms(p.ts)}</text>`}).join('');
+  const ylab=[mx,0,mn].filter((v,i,a)=>a.indexOf(v)===i).map(v=>`<text x="${pl-6}" y="${(Y(v)+4).toFixed(1)}" fill="#8b949e" font-size="11" text-anchor="end">${sg(v,2)}</text>`).join('');
+  const col=vs[vs.length-1]>=0?'#26a69a':'#ef5350';
+  return `<svg width="100%" viewBox="0 0 ${w} ${h}" style="background:#0d1117;border:1px solid var(--bd);border-radius:8px">
+    <line x1="${pl}" y1="${zy}" x2="${w-pr}" y2="${zy}" stroke="#3d444d" stroke-dasharray="4,4"/>
+    ${ylab}<polyline points="${line}" fill="none" stroke="${col}" stroke-width="1.8"/>${dots}${ticks}</svg>
+  <div class=mut style=font-size:11px;margin-top:4px>每个圆点=一笔平仓（绿盈红亏），悬停看时间与盈亏；横轴=平仓时间线</div>`;
+}
+let MGDATA={};
+function closeMgmt(){$('mgmt').style.display='none'}
+async function openMgmt(){
+  const d=await(await fetch('/api/shadow')).json();
+  const sel=$('mgsel'); sel.innerHTML=(d.strategies||[]).map(x=>`<option>${x.name}</option>`).join('');
+  $('mgmt').style.display='flex'; loadMg();
+}
+const MGFIELDS=[
+ ['entry_th','入场阈值','',1],['tp_pct','止盈','%',100],['sl_pct','止损(可空)','%',100],
+ ['trail_arm','追踪武装(可空)','%',100],['trail_gap','追踪回撤(可空)','%',100],
+ ['max_hold','最大持仓','分钟',1/60],['cooldown','冷却','秒',1],['min_range','体制过滤(可空)','%',100]];
+async function loadMg(){
+  const name=$('mgsel').value;
+  const d=await(await fetch('/api/strategy/detail?name='+encodeURIComponent(name))).json();
+  MGDATA=d; const df=d.definition||{}; const trail=df.trail||[null,null];
+  const cur={entry_th:df.entry_th,tp_pct:df.tp_pct,sl_pct:df.sl_pct??null,
+             trail_arm:trail[0],trail_gap:trail[1],max_hold:df.max_hold,
+             cooldown:df.cooldown,min_range:df.min_range??null};
+  $('mgform').innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px 16px">'+
+    MGFIELDS.map(([k,lab,unit,mult])=>{
+      const v=cur[k]; const shown=(v==null)?'':(mult===1||mult===1/60?(mult===1?v:Math.round(v/60)):+(v*mult).toFixed(3));
+      return `<label style=font-size:12px class=mut>${lab}<br><input id=mg_${k} value="${shown}" placeholder=${v==null?'空':''} style="width:100%;background:#0d1117;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 8px;margin-top:2px">${unit?'<span style=margin-left:4px>'+unit+'</span>':''}</label>`;
+    }).join('')+'</div>'+
+    `<div style=margin-top:12px><button class=freq style="background:#238636;border-color:#238636;color:#fff;padding:6px 16px" onclick=saveMg()>保存修改</button>
+     <span class=mut style=font-size:11px;margin-left:10px>来源：${d.author==='agent'?'🤖 Agent生成':'👤 人工基线'} · 当前版本 <code>${(d.versions&&d.versions.length)?d.versions[d.versions.length-1].version_id:'—'}</code></span></div>`;
+  $('mgmsg').textContent='';
+}
+async function saveMg(){
+  const name=$('mgsel').value; const params={};
+  for(const [k,,unit,mult] of MGFIELDS){
+    const raw=$('mg_'+k).value.trim();
+    if(raw===''){params[k]=null;continue}
+    const num=parseFloat(raw); if(isNaN(num)){$('mgmsg').innerHTML='<span class=dn>'+k+' 不是数字</span>';return}
+    params[k]= unit==='分钟'?Math.round(num*60) : (mult===1?num:num/mult);
+  }
+  const r=await(await fetch('/api/strategy/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,params})})).json();
+  if(r.ok){$('mgmsg').innerHTML='<span class=up>✓ '+r.note+'</span>'; setTimeout(loadMg,3500);}
+  else{$('mgmsg').innerHTML='<span class=dn>校验未通过：</span><br>'+r.errors.map(e=>'<span class=dn>· '+e+'</span>').join('<br>');}
+}
+const SIGCN={obi:'盘口失衡OBI',cvd:'主动买卖差CVD',mom30m:'30分时序动量',meanrev1h:'1h均值回归'};
+const MODECN={mom:'顺势',rev:'反转'};
+function defHtml(d){
+  const df=d.definition; if(!df)return'';
+  const rows=[];
+  rows.push(['信号源',SIGCN[df.signal]||df.signal]);
+  rows.push(['模式',MODECN[df.mode]||df.mode]);
+  rows.push(['入场阈值',df.entry_th]);
+  rows.push(['止盈',f(df.tp_pct*100,2)+'%']);
+  if(df.sl_pct)rows.push(['止损',f(df.sl_pct*100,2)+'%']);
+  if(df.trail)rows.push(['追踪止损','武装'+f(df.trail[0]*100,2)+'% / 回撤'+f(df.trail[1]*100,2)+'%锁定']);
+  rows.push(['最大持仓',Math.round(df.max_hold/60)+'分钟']);
+  rows.push(['冷却',df.cooldown+'秒']);
+  if(df.min_range)rows.push(['体制过滤','近1h波幅≥'+f(df.min_range*100,2)+'%才入场']);
+  if(df['class']==='AgentStrategy')rows.push(['LLM融合','是（agent观点 veto硬否决/±50%加成）']);
+  rows.push(['来源',d.author==='agent'?'🤖 Agent生成':'👤 人工基线（agent不可改）']);
+  const grid=rows.map(([k,v])=>`<div style="display:flex;gap:8px"><span class=mut style=min-width:70px>${k}</span><b>${v}</b></div>`).join('');
+  let vh='';
+  if((d.versions||[]).length){
+    vh='<div class=mut style=font-size:11px;margin-top:8px>版本历史：'+
+      d.versions.map(v=>{const dt=new Date(v.ts);return `<code>${v.version_id}</code>(${p2(dt.getMonth()+1)}-${p2(dt.getDate())} ${p2(dt.getHours())}:${p2(dt.getMinutes())})`}).join(' → ')+'</div>';
+  }
+  return `<div style="background:#0d1117;border:1px solid var(--bd);border-radius:8px;padding:12px;font-size:12px">
+    <div class=mut style=margin-bottom:6px><b style=color:var(--fg)>策略定义</b>（当前版本 <code>${d.versions&&d.versions.length?d.versions[d.versions.length-1].version_id:'—'}</code>）</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:5px 18px">${grid}</div>${vh}</div>`;
+}
+async function openDetail(name){
+  try{
+    const d=await(await fetch('/api/strategy/detail?name='+encodeURIComponent(name))).json();
+    if(!d.ok)return;
+    $('mtitle').textContent=d.name;
+    $('mstats').textContent=`${d.n} 笔 · ${d.wins} 胜(${d.n?f(d.wins/d.n*100,0):0}%) · 累计净值 ${sg(d.net)} USDT`;
+    $('mdef').innerHTML=defHtml(d);
+    $('mchart').innerHTML=bigChart(d.points);
+    $('mtrades').innerHTML=d.trades.length?'<table><thead><tr><th>方向</th><th>买入时间</th><th>买入价</th><th>卖出时间</th><th>卖出价</th><th>持仓时长</th><th>毛利USDT</th><th>手续费</th><th>净USDT</th><th title="最大浮盈：这笔单持仓期间浮动盈利的最高点（到手过的最好水平）">最大浮盈MFE%</th><th title="最大浮亏：持仓期间浮动亏损的最深点（中途最坏的时刻）">最大浮亏MAE%</th><th>出场</th></tr></thead><tbody>'+
+      d.trades.map(t=>`<tr><td><span class="tag ${t.dir=='多'?'l':'s'}">${t.dir}</span></td><td>${hms(t.buy_ms)}</td><td>${f(t.buy_px)}</td><td>${hms(t.sell_ms)}</td><td>${f(t.sell_px)}</td><td>${dur(t.hold)}</td><td class=mut>${sg(t.gross_usd)}</td><td class=dn>-${f(t.fee_usd,3)}</td><td class="${cls(t.net_usd)}" style=font-weight:700>${sg(t.net_usd)}</td><td class=${cls(t.mfe_pct||0)}>${sg(t.mfe_pct||0,2)}</td><td class=dn>${f(t.mae_pct||0,2)}</td><td class=mut>${t.reason=='tp'?'止盈':t.reason=='sl'?'止损':t.reason=='trail'?'追踪':'超时'}</td></tr>`).join('')+'</tbody></table>':'<div class=mut style=padding:14px>暂无成交</div>';
+    $('modal').classList.add('on');
+  }catch(e){}
+}
+async function toggleStrat(name,on){
+  try{await fetch('/api/strategy/toggle?name='+encodeURIComponent(name)+'&on='+on,{method:'POST'});}catch(e){}
+}
+async function runNow(){
+  try{await fetch('/api/agent/run-now',{method:'POST'});
+    $('freqmsg').textContent='已请求立即执行，agent 将尽快辩论（若正在辩论则本轮结束后）';}
+  catch(e){$('freqmsg').textContent='请求失败';}
+}
+const f=(n,d=2)=>Number(n).toLocaleString('en',{minimumFractionDigits:d,maximumFractionDigits:d});
+const sg=(n,d=3)=>(n>=0?'+':'')+f(n,d);
+const cls=n=>n>0?'up':n<0?'dn':'mut';
+const p2=x=>String(x).padStart(2,'0');
+function hms(ms){if(!ms)return'—';const d=new Date(ms);return `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`}
+function dur(s){if(s<60)return s+'s';const m=Math.floor(s/60);return m+'分'+(s%60)+'s'}
+function spark(curve){
+  if(!curve||curve.length<2)return'<span class=mut style=font-size:11px>待成交</span>';
+  const w=150,h=30,pad=2,min=Math.min(...curve),max=Math.max(...curve),rng=(max-min)||1;
+  const X=i=>(pad+i/(curve.length-1)*(w-2*pad)).toFixed(1);
+  const Y=v=>(h-pad-(v-min)/rng*(h-2*pad)).toFixed(1);
+  const pts=curve.map((v,i)=>`${X(i)},${Y(v)}`).join(' ');
+  const last=curve[curve.length-1],col=last>=0?'#26a69a':'#ef5350';
+  let zero='';
+  if(max>=0&&min<=0){const zy=Y(0);
+    zero=`<line x1="${pad}" y1="${zy}" x2="${w-pad}" y2="${zy}" stroke="#3d444d" stroke-width="1" stroke-dasharray="3,3" />`;}
+  // 末端点 + 收盘于零轴上下的渐变面积
+  const area=`<polygon points="${X(0)},${Y(curve[0])} ${pts} ${X(curve.length-1)},${h-pad} ${X(0)},${h-pad}" fill="${col}" opacity="0.10" />`;
+  const dot=`<circle cx="${X(curve.length-1)}" cy="${Y(last)}" r="2.2" fill="${col}" />`;
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${area}${zero}<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" />${dot}</svg>`;
+}
+// ---- 成交明细：分页 + 下滑加载更多 ----
+let tradeOffset=0,tradeTotal=0,lastTotal=0,tradeBuilt=false,tradeLoading=false;
+function tradeRow(t){return `<tr><td class=mut>${t.strategy||''}</td><td><span class="tag ${t.dir=='多'?'l':'s'}">${t.dir}</span></td><td>${hms(t.buy_ms)}</td><td>${hms(t.sell_ms)}</td><td>${dur(t.hold)}</td><td>${f(t.buy_px)}</td><td>${f(t.sell_px)}</td><td class=mut>${sg(t.gross_usd)}</td><td class=dn>-${f(t.fee_usd,3)}</td><td class="${cls(t.net_usd)}" style=font-weight:700>${sg(t.net_usd)}</td><td class=mut>${t.reason=='tp'?'止盈':t.reason=='sl'?'止损':t.reason=='trail'?'追踪':'超时'}</td></tr>`}
+function buildTradeTable(){
+  $('alltrades').innerHTML='<table><thead><tr><th>策略</th><th>方向</th><th>买入时间</th><th>卖出时间</th><th>持仓时长</th><th>买入价</th><th>卖出价</th><th>毛利USDT</th><th>手续费USDT</th><th>获利USDT(净)</th><th>出场</th></tr></thead><tbody id=tradebody></tbody></table><div id=tradeend class=mut style=text-align:center;padding:10px;font-size:12px></div>';
+  tradeBuilt=true;
+  $('alltrades').onscroll=()=>{const el=$('alltrades');if(el.scrollTop+el.clientHeight>=el.scrollHeight-60)loadMoreTrades();};
+}
+async function loadMoreTrades(){
+  if(tradeLoading)return;if(tradeBuilt&&tradeOffset>0&&tradeOffset>=tradeTotal){$('tradeend').textContent='— 已全部加载 —';return;}
+  tradeLoading=true;
+  try{
+    const r=await(await fetch(`/api/trades?offset=${tradeOffset}&limit=50`)).json();
+    const tb=$('tradebody');if(!tb){tradeLoading=false;return;}
+    if(tradeOffset===0&&!r.trades.length){tb.innerHTML='<tr><td colspan=12 class=mut style=text-align:center;padding:20px>暂无成交（策略等待信号触发）</td></tr>';}
+    else tb.insertAdjacentHTML('beforeend',r.trades.map(tradeRow).join(''));
+    tradeOffset+=r.trades.length;tradeTotal=r.total;
+    $('tradeend').textContent=tradeOffset>=tradeTotal?'— 已全部加载 '+tradeTotal+' 笔 —':'下滑加载更多…';
+  }catch(e){}
+  tradeLoading=false;
+}
+function resetTrades(){tradeOffset=0;const tb=$('tradebody');if(tb)tb.innerHTML='';loadMoreTrades();}
+
+async function tick(){
+ try{
+  const d=await(await fetch('/api/shadow')).json();
+  if(!d.ready){$('stat').innerHTML='<span class=dot></span>影子引擎未就绪';return;}
+  $('stat').innerHTML='<span class=dot></span>实时';document.querySelector('.sub').classList.remove('stale');
+  {const ag=Math.round((Date.now()-d.ts)/1000);
+   setTimeout(()=>{const e=$('pxage');if(e){e.textContent=' ('+ag+'s前)';e.style.color=ag>12?'var(--dn)':'var(--mut)';}},0);}
+  $('meta').innerHTML=`标的 <b>${d.inst}</b> · 运行 <b>${Math.floor(d.runtime_sec/60)}分${d.runtime_sec%60}秒</b> · 采样 <b>${d.ticks}</b> 次 · 现价 <b>${f(d.mid)}</b><span id=pxage style=font-size:11px></span> · OBI <b>${sg(d.obi,3)}</b> · 每笔名义 <b>$${d.notional}</b> · 往返费 <b>${d.fee_roundtrip_pct}%</b>`;
+  // Agent 观点面板
+  const ag=d.agent;
+  if(ag){
+    const age=Math.floor((Date.now()-ag.ts)/1000);
+    const sc=ag.veto?'dn':(ag.stance>0?'up':ag.stance<0?'dn':'mut');
+    const dir=ag.veto?'否决交易':(ag.stance>0.05?'偏多':ag.stance<-0.05?'偏空':'中性');
+    const ctx=ag.context||{};
+    const intv=ag.interval_sec||900;const nextIn=Math.max(0,intv-age);
+    $('agentbox').innerHTML=`<div class=card style="border-color:#3b5bdb">
+      <div class=row style=margin:0><span><b>🤖 Agent 认知层观点</b> <span class=mut>(${ag.model} · 每${Math.round(intv/60)}分钟辩论 · ${Math.floor(age/60)}分${age%60}秒前 · 下次约${Math.floor(nextIn/60)}分${nextIn%60}秒后 · 成本¥${f(ag.cost_rmb,3)})</span></span>
+      <span class="big ${sc}" style=font-size:20px>${dir} ${ag.veto?'':(ag.stance>=0?'+':'')+f(ag.stance,2)}</span></div>
+      <div class=row style=margin:6px_0><span class=mut>信心 ${f(ag.conviction,2)} · 数据：资金费率 ${ctx.funding_rate}% · 多空比 ${ctx.long_short_ratio} · 24h ${ctx.chg24h_pct}% · OBI ${ctx.obi}</span></div>
+      <div style=color:var(--fg);font-size:13px;margin-top:4px>${ag.reasoning||''}</div>
+      ${(ag.key_risks||[]).length?'<div class=mut style=font-size:12px;margin-top:6px>风险：'+ag.key_risks.join('；')+'</div>':''}
+      ${ag.valid?'':'<div class=dn style=font-size:12px>⚠ 本次观点未通过校验('+(ag.valid_detail||'')+')，Agent策略降级为纯OBI</div>'}
+      <div style=margin-top:10px;padding-top:8px;border-top:1px solid var(--bd);font-size:12px>
+        <span class=mut>辩论频率：</span>
+        <button class=freq data-s=300 onclick=setFreq(300)>5分</button>
+        <button class=freq data-s=600 onclick=setFreq(600)>10分</button>
+        <button class=freq data-s=900 onclick=setFreq(900)>15分</button>
+        <button class=freq data-s=1800 onclick=setFreq(1800)>30分</button>
+        <button class=freq data-s=3600 onclick=setFreq(3600)>60分</button>
+        <input id=freqcustom type=number min=2 max=120 placeholder=自定义 style="width:70px;background:#0d1117;color:var(--fg);border:1px solid var(--bd);border-radius:5px;padding:2px 6px"> <span class=mut>分</span>
+        <button class=freq onclick="setFreq(($('freqcustom').value||15)*60)">应用</button>
+        <button class=freq style="background:#238636;border-color:#238636;color:#fff;margin-left:10px" onclick=runNow()>⚡ 立即执行</button>
+        <span id=freqmsg class=mut style=margin-left:8px></span>
+      </div>
+    </div>`;
+    document.querySelectorAll('.freq').forEach(b=>{if(+b.dataset.s===intv)b.classList.add('freqon')});
+  }else $('agentbox').innerHTML='<div class=card style=color:var(--mut)>🤖 Agent 认知层：等待首次辩论（agent_runner 启动后约30秒出观点）…</div>';
+
+  // 进行中的交易（最上面）
+  const OT=d.open_trades||[];
+  if(OT.length){
+    $('opentrades').innerHTML='<table><thead><tr><th>策略</th><th>方向</th><th>开仓时间</th><th>持仓时长</th><th>数量ETH</th><th title=每笔统一名义100USDT便于横向对比>投入USDT</th><th>现在价值USDT</th><th>开仓价</th><th>现价</th><th>浮动%</th><th>浮动毛利USDT</th><th>此刻平仓净USDT</th><th>止盈目标%</th></tr></thead><tbody>'+
+    OT.map(t=>`<tr><td class=mut>${t.strategy}</td><td><span class="tag ${t.dir=='多'?'l':'s'}">${t.dir}</span></td><td>${hms(t.open_ms)}</td><td>${dur(t.hold)}</td><td>${t.qty??'—'}</td><td>${f(t.invested??100,0)}</td><td class="${cls((t.cur_value??100)-100)}" style=font-weight:700>${f(t.cur_value??100,3)}</td><td>${f(t.entry)}</td><td>${f(t.cur)}</td><td class=${cls(t.upnl_pct)}>${sg(t.upnl_pct,3)}%</td><td class=${cls(t.gross_usd)}>${sg(t.gross_usd)}</td><td class="${cls(t.net_if_close)}" style=font-weight:700>${sg(t.net_if_close)}</td><td class=mut>+${f(t.tp_target,2)}</td></tr>`).join('')+'</tbody></table>';
+  }else $('opentrades').innerHTML='<div class=mut style=padding:14px;background:var(--card);border:1px solid var(--bd);border-radius:10px>当前无进行中的交易（策略均空仓，等待信号）</div>';
+
+  const S=d.strategies;
+  $('rows').innerHTML=S.map((s,i)=>`<tr style="${s.enabled===false?'opacity:.45':''}">
+   <td style=cursor:pointer onclick="openDetail('${s.name}')" title=点击查看策略详情><span class=rank>#${i+1}</span><span style=text-decoration:underline;text-underline-offset:3px>${s.name}</span>${s.open?' <span class=mut>(持仓中)</span>':''}${s.enabled===false?' <span style=color:var(--dn);font-size:11px>[已停]</span>':''}</td>
+   <td class=mut>${s.signal}/${s.mode=='mom'?'顺势':'反转'}</td>
+   <td class=mut>${f(s.tp_pct,2)}</td>
+   <td>${s.trades}</td>
+   <td>${f(s.win_rate,0)}%</td>
+   <td class=mut>${sg(s.gross_usd)}</td>
+   <td class=dn>-${f(s.fee_usd,3)}</td>
+   <td class="${cls(s.net_usd)}" style=font-weight:700>${sg(s.net_usd)}</td>
+   <td class=${cls(s.sharpe)}>${sg(s.sharpe)}</td>
+   <td class=dn>${f(s.max_dd,3)}</td>
+   <td onclick="openDetail('${s.name}')" title=点击查看详情>${spark(s.equity_curve)}</td><td><button class=freq style="${s.enabled===false?'background:#238636;border-color:#238636;color:#fff':''}" onclick="toggleStrat('${s.name}',${s.enabled===false})">${s.enabled===false?'启用':'停用'}</button></td></tr>`).join('');
+  // 成交明细走独立分页加载（见下方 loadMoreTrades），此处仅按需刷新最新
+  tradeTotal=d.total_trades||0;
+  $('tradecount').textContent=' · 共 '+tradeTotal+' 笔';
+  if(!tradeBuilt){buildTradeTable();loadMoreTrades();}
+  else if(tradeTotal>lastTotal && $('alltrades').scrollTop<12){resetTrades();}  // 在顶部且有新成交→刷新
+  lastTotal=tradeTotal;
+  // 结论
+  const profitable=S.filter(s=>s.trades>=5&&s.net_usd>0);
+  const total=S.reduce((a,s)=>a+s.trades,0);
+  let v='<b>结论：</b>';
+  if(total<10)v+='样本太少（需累计更多成交，建议 ≥50 笔/策略），暂不能下结论。';
+  else if(!profitable.length)v+='<span class=dn>目前没有任何策略扣费后为正</span>——说明这些简单盘口信号的 edge 覆盖不了 0.10% 手续费。这是有价值的证伪：不要拿真金去跑它们。';
+  else v+=`<span class=up>${profitable.map(s=>s.name).join('、')}</span> 扣费后为正（样本 ${profitable[0].trades} 笔）。需继续观察至 ≥50 笔确认非偶然，再考虑小资金实盘。`;
+  v+='<br>提醒：影子模式假设成交在中间价、无滑点；真实实盘净利会更低。夏普为每笔收益率口径，仅供横向对比。';
+  $('verdict').innerHTML=v;
+ }catch(e){$('stat').innerHTML='<span class=dot></span>连接失败';document.querySelector('.sub').classList.add('stale');}
+}
+tick();setInterval(tick,3000);
+</script></body></html>"""

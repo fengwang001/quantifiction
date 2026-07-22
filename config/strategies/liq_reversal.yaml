@@ -1,0 +1,22 @@
+# 爆仓反转策略（spec §8.2）。声明式，改配置需重启生效。
+name: liq_reversal
+version: 1
+enabled: true
+symbols: [ETHUSDT]
+timeframe: 5m
+
+entry:
+  all:
+    - liq_flow_5m.abs > 2000000       # 爆仓流放量
+    - liq_flow_5m.side == "long"      # 多头被爆
+    - rsi_14 < 30
+    - obi_20 > 0.15                   # 盘口开始承接
+exit:
+  any:
+    - pnl_pct > 1.5
+    - pnl_pct < -0.8                  # 与交易所止损单冗余
+    - holding_minutes > 240
+
+sizing:
+  risk_usd: 15                        # 工作资金 10%（宪法 I）
+  max_leverage: 1

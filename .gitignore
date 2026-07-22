@@ -1,0 +1,33 @@
+# 密钥绝不入库（宪法 IV / T005）
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# 数据（自录 tick / 本地落盘，勿入库）
+data/
+*.parquet
+
+# 工具
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+uv.lock
+vendor/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

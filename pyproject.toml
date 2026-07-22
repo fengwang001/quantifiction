@@ -1,0 +1,71 @@
+[project]
+name = "quantifiction"
+version = "0.1.0"
+description = "加密量化交易平台（币安永续 + LLM 认知层）— 以资本保全为第一约束"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    # 传输层：复用币安官方库（宪法 IV / research R2）
+    "binance-futures-connector>=4.0.0",
+    # 总线 / 热态
+    "redis>=5.0.0",
+    # 温层
+    "psycopg[binary]>=3.2.0",
+    # 冷层
+    "pyarrow>=16.0.0",
+    "oss2>=2.18.0",
+    # 认知层（LangGraph 编排，宪法 II）
+    "langgraph>=0.2.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "httpx>=0.27.0",   # LLM 走 grsai OpenAI 兼容端点（非 Anthropic SDK）
+    # Web 控制台后端
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    # 配置
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "fakeredis>=2.25.0",
+    "ruff>=0.7.0",
+    "black>=24.0.0",
+    "mypy>=1.13.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quant"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+markers = [
+    "needs_redis: 需要 Redis 服务",
+    "needs_pg: 需要 Postgres 服务",
+    "needs_binance: 需要币安 Testnet 凭据",
+    "needs_llm: 需要 grsai LLM 凭据",
+    "needs_okx: 需要欧易凭据",
+]
+
+# T003：linting / formatting / typing
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
