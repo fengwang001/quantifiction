@@ -92,8 +92,14 @@ uv run python -m quant.cognitive.agent_runner     # Agent 认知层
 uv run uvicorn quant.webui.live_dashboard:app --host 127.0.0.1 --port 8000
 ```
 
-本地开发经代理访问 OKX（REST 用 `www.okx.cab` 备用域名，WS 被拦故用轮询）；
-上服务器直连后切 WS 即毫秒级实时（代码已备好：`markets/okx_swap/ws_feed.py`）。
+**行情双模式**（`markets/okx_swap/ws_feed.py`）：
+- **WS 实时**（`WSPoller`）：设 `WS_PROXY` 即启用，后台线程维护实时订单簿(400档)+逐笔，毫秒级更新，
+  断线/冷启动自动 REST 回退。经透传 TLS 的代理（Clash 混合端口 7890）连 `wss://ws.okx.com:8443`——
+  一键启动 `scripts/run_shadow_ws.ps1`。
+- **REST 轮询**（`RestPoller`）：无 WS_PROXY 时回退，~6s/次，走任意 HTTP 代理。
+
+> 关键坑：普通 HTTP 代理对 CONNECT 回 200 但不透传 TLS 字节流，WS 握手被 RST；
+> 需 SOCKS5 或 Clash 这类透明隧道代理。上服务器直连则无需代理，设 `OKX_WS_DIRECT=1` 即可。
 
 ## 七、代码结构（src-layout 单包 `quant`）
 

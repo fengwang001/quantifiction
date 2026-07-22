@@ -20,7 +20,7 @@ from pathlib import Path
 from quant.core.types import LLMSignal
 from quant.markets.okx_swap.okx_client import OKXClient
 from quant.markets.okx_swap.signals import cvd, mid_price, order_book_imbalance
-from quant.markets.okx_swap.ws_feed import RestPoller
+from quant.markets.okx_swap.ws_feed import RestPoller, WSPoller
 from quant.strategy.fusion import final_score
 
 AGENT_STANCE = Path("data/agent_stance.json")
@@ -406,7 +406,15 @@ def load_persist(strategies):
 def main():
     c = OKXClient("x", "x", "x", base_url=os.environ.get("OKX_BASE_URL", "https://www.okx.com"),
                   simulated=False)   # 行情用实盘公共源：更准且不受模拟盘限流(50013事故 2026-07-22)
-    poller = RestPoller(c, INST, f"okx_swap:{INST}")
+    # 行情源：有透明代理隧道(如 Clash 混合端口 WS_PROXY)则 WS 毫秒级实时，否则 REST 轮询回退。
+    # WS_PROXY=http://127.0.0.1:7890 时经 CONNECT 隧道连 wss://ws.okx.com:8443(TLS 透传)。
+    ws_proxy = os.environ.get("WS_PROXY")
+    if ws_proxy or os.environ.get("OKX_WS_DIRECT"):
+        poller = WSPoller(c, INST, f"okx_swap:{INST}", proxy=ws_proxy)
+        print(f"[行情] WS 实时模式 (proxy={ws_proxy or '直连'})，冷启动/断线自动 REST 回退", flush=True)
+    else:
+        poller = RestPoller(c, INST, f"okx_swap:{INST}")
+        print("[行情] REST 轮询模式 (未设 WS_PROXY)", flush=True)
     strategies = make_strategies()
     OUT.parent.mkdir(parents=True, exist_ok=True)
 
