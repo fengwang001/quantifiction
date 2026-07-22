@@ -331,6 +331,12 @@ def make_strategies():
         Strategy("比例·紧止损", "obi", "mom", 0.45, 0.015, 14400,
                  cooldown=300, sl_pct=0.003, author="agent",
                  trail_arm=0.0025, trail_frac=0.4, trend_gate=0.15),  # 止损收紧0.5%→0.3%
+        # ---- 迭代55（两独立赢家合成）：均值回归1h(最佳信号,团灭时反向盈利)登顶-0.08；----
+        # 比例追踪+紧止损(最佳出场)确认。合成：最佳信号+最佳出场。不加闸门(会扼杀逆势edge)。
+        # 保留旧「均值回归1h」(fixed gap/标准止损)作干净对照，隔离出场优化的增量。
+        Strategy("均值回归·优化出场", "meanrev1h", "mom", 0.5, 0.008, 7200,
+                 cooldown=300, sl_pct=0.003, author="agent",
+                 trail_arm=0.0025, trail_frac=0.4),  # 比例追踪60%+紧止损0.3%，无闸门
     ]
 
 
