@@ -81,16 +81,47 @@ LLM认知层(gemini,30分辩论) ──┘        ↓
 
 ## 六、运行
 
+**准备**（一次）：
+
 ```bash
 uv sync --extra dev                # Python 3.12 依赖
 cp .env.example .env               # 填 OKX(三要素,模拟盘) + GRSAI key
 uv run pytest -q                   # 132 passed（含契约测试=宪法的工程固化）
-
-# 三个常驻进程
-uv run python -m quant.research.shadow_engine     # 影子引擎
-uv run python -m quant.cognitive.agent_runner     # Agent 认知层
-uv run uvicorn quant.webui.live_dashboard:app --host 127.0.0.1 --port 8000
 ```
+
+**一键启动脚本**（自动加载 `.env`，统一管理三个常驻进程：引擎/Agent/看板）：
+
+| 平台 | 脚本 | 启动全部 | 其他命令 |
+|---|---|---|---|
+| **Windows** | `scripts\quant.ps1` | `.\scripts\quant.ps1 start` | `stop` / `restart` / `status` / `logs engine` |
+| **Linux / macOS** | `scripts/quant.sh` | `./scripts/quant.sh start` | 同上（`logs agent` 等） |
+| **iOS** | 见下 | —— | —— |
+
+```powershell
+# Windows（PowerShell）
+.\scripts\quant.ps1 start           # REST 轮询（默认，读 .env）
+.\scripts\quant.ps1 start -Ws       # WS 实时（经 Clash 混合端口 7890）
+.\scripts\quant.ps1 status          # 查看三进程状态
+.\scripts\quant.ps1 restart -Ws     # 无损重启（恢复持久化状态）
+.\scripts\quant.ps1 stop            # 停止全部
+.\scripts\quant.ps1 logs engine     # 跟随某进程日志
+```
+
+```bash
+# Linux / macOS（bash）
+./scripts/quant.sh start            # REST 轮询
+./scripts/quant.sh start --ws       # WS 实时（代理，默认 127.0.0.1:7890）
+./scripts/quant.sh start --ws-direct  # WS 实时（服务器直连公网，无需代理）
+./scripts/quant.sh status | stop | restart | logs agent
+./scripts/quant.sh start engine     # 只启动单个（engine|agent|web）
+```
+
+- WS 代理地址可用环境变量 `QUANT_WS_PROXY` 覆盖（默认 `http://127.0.0.1:7890`）。
+- 进程 PID 存 `data/pids/`，日志存 `data/logs/`。
+
+**iOS**：iPhone/iPad 无法原生跑后台服务，两种用法：
+1. **只看看板**——服务跑在同局域网的电脑/服务器上，手机浏览器访问 `http://<主机IP>:8000`（把看板 `--host` 改为 `0.0.0.0`）。
+2. **iSH 终端**（App Store 免费 Alpine Linux）——`apk add python3 bash git` 后可跑 `./scripts/quant.sh`；性能有限，建议只跑看板或做轻量验证。
 
 **行情双模式**（`markets/okx_swap/ws_feed.py`）：
 - **WS 实时**（`WSPoller`）：设 `WS_PROXY` 即启用，后台线程维护实时订单簿(400档)+逐笔，毫秒级更新，
