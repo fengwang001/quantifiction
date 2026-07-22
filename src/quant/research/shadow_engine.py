@@ -42,7 +42,8 @@ class Strategy:
 
     def __init__(self, name, signal, mode, entry_th, tp_pct, max_hold_sec, cooldown=15,
                  sl_pct=None, author="human", min_range=None,
-                 trail_arm=None, trail_gap=None, trend_gate=None, trail_frac=None):
+                 trail_arm=None, trail_gap=None, trend_gate=None, trail_frac=None,
+                 fee_pct=None):
         self.name = name
         self.signal = signal
         self.mode = mode
@@ -57,6 +58,7 @@ class Strategy:
         self.trail_gap = trail_gap # 武装后从峰值回撤此值即锁定离场
         self.trend_gate = trend_gate  # 顺势闸门：逆30m动量超此阈值不开仓（迭代39：OBI陷阱教训）
         self.trail_frac = trail_frac  # 比例追踪：回撤到峰值的(1-frac)即离场，随行情缩放（迭代46：固定gap在小行情全回吐）
+        self.fee_pct = fee_pct if fee_pct is not None else ROUNDTRIP_FEE_PCT  # 往返费率：maker可低至0.04%（迭代58费用墙）
         # 状态
         self.pos = 0                 # 0 / +1 多 / -1 空
         self.entry_px = 0.0
@@ -119,10 +121,11 @@ class Strategy:
         self.prev_dir = cur_dir
 
     def _close(self, exit_px, gross_pct, held, reason, now):
-        net_pct = gross_pct - ROUNDTRIP_FEE_PCT
+        fee = getattr(self, "fee_pct", ROUNDTRIP_FEE_PCT)   # 可按策略配置(maker实验，迭代58)
+        net_pct = gross_pct - fee
         net_usd = NOTIONAL * net_pct
         gross_usd = NOTIONAL * gross_pct
-        fee_usd = NOTIONAL * ROUNDTRIP_FEE_PCT
+        fee_usd = NOTIONAL * fee
         # 买入价/卖出价：多头=先买后卖；空头=先卖后买
         if self.pos > 0:
             buy_px, sell_px = self.entry_px, exit_px
@@ -176,12 +179,13 @@ class Strategy:
 
     def stats(self):
         n = len(self.trades)
+        fee = getattr(self, "fee_pct", ROUNDTRIP_FEE_PCT)
         nets = [t["net_usd"] for t in self.trades]
-        grosss = [t["net_usd"] + NOTIONAL * ROUNDTRIP_FEE_PCT for t in self.trades]
+        grosss = [t["net_usd"] + t.get("fee_usd", NOTIONAL * fee) for t in self.trades]
         wins = sum(1 for x in nets if x > 0)
         net_sum = sum(nets)
         gross_sum = sum(grosss)
-        fee_sum = n * NOTIONAL * ROUNDTRIP_FEE_PCT
+        fee_sum = sum(t.get("fee_usd", NOTIONAL * fee) for t in self.trades)
         # 简易夏普：每笔净收益率的均值/标准差
         rets = [t["net_pct"] for t in self.trades]
         sharpe = 0.0
@@ -337,6 +341,13 @@ def make_strategies():
         Strategy("均值回归·优化出场", "meanrev1h", "mom", 0.5, 0.008, 7200,
                  cooldown=300, sl_pct=0.003, author="agent",
                  trail_arm=0.0025, trail_frac=0.4),  # 比例追踪60%+紧止损0.3%，无闸门
+        # ---- 迭代58（费用墙量化决定性证据）：顶部策略免费毛利全为正，taker费0.10%吃光edge ----
+        # 均值回归天然被动成交(极值挂限价entry maker + TP挂限价exit maker)，两腿可拿maker费0.04%往返。
+        # 此变体=均值回归·优化出场 仅fee_pct 0.10%→0.04%，直接检验"跨过费用墙能否翻正"。
+        # 注：假设maker成交(未建模非成交/滑点)，SL腿实盘为taker，故0.04%偏乐观，作方向性验证。
+        Strategy("均值回归·maker", "meanrev1h", "mom", 0.5, 0.008, 7200,
+                 cooldown=300, sl_pct=0.003, author="agent",
+                 trail_arm=0.0025, trail_frac=0.4, fee_pct=0.0004),  # maker往返0.04%
     ]
 
 
