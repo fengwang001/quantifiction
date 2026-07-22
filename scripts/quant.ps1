@@ -46,7 +46,23 @@ $Services = @{
   agent  = @("-m","quant.cognitive.agent_runner")
   web    = @("-m","uvicorn","quant.webui.live_dashboard:app","--host","127.0.0.1","--port","8000","--log-level","warning")
 }
-$All = @("engine","agent","web")
+# 每服务的额外环境变量（多标的并行引擎用；迭代47）
+$ServiceEnv = @{}
+
+# 多标的：除主 ETH 引擎外，为每个额外标的注册独立引擎（独立持久化/展示文件，同策略并行）
+# 数据增速×(1+标的数)，零策略逻辑改动。ETH 用默认文件名保持现有数据不动。
+$Instruments = @("BTC-USDT-SWAP","SOL-USDT-SWAP")
+foreach ($inst in $Instruments) {
+  $sym = ($inst -split "-")[0].ToLower()       # btc / sol
+  $svc = "engine-$sym"
+  $Services[$svc] = @("-m","quant.research.shadow_engine")
+  $ServiceEnv[$svc] = @{
+    SHADOW_INST    = $inst
+    SHADOW_PERSIST = "data\shadow_persist_$sym.json"
+    SHADOW_OUT     = "data\shadow_state_$sym.json"
+  }
+}
+$All = @("engine") + ($Instruments | ForEach-Object { "engine-" + ($_ -split "-")[0].ToLower() }) + @("agent","web")
 
 function Apply-WsEnv([bool]$Direct) {
   $env:OKX_BASE_URL = "https://www.okx.com"
@@ -70,11 +86,24 @@ function Start-One([string]$Name) {
   if (-not $Services.ContainsKey($Name)) { Write-Host "未知服务: $Name"; return }
   if (Get-Pid $Name) { Write-Host "  $Name 已在运行 (pid $(Get-Pid $Name))"; return }
   $env:PYTHONIOENCODING = "utf-8"
+  # 应用该服务的专属环境变量（多标的引擎），记录原值以便复原
+  $saved = @{}
+  if ($ServiceEnv.ContainsKey($Name)) {
+    foreach ($k in $ServiceEnv[$Name].Keys) {
+      $saved[$k] = [Environment]::GetEnvironmentVariable($k)
+      Set-Item -Path "env:$k" -Value $ServiceEnv[$Name][$k]
+    }
+  }
   $p = Start-Process -FilePath $Py -ArgumentList $Services[$Name] -WorkingDirectory $Root `
         -RedirectStandardOutput (Join-Path $LogDir "$Name.log") `
         -RedirectStandardError  (Join-Path $LogDir "$Name.err") `
         -PassThru -WindowStyle Hidden
   $p.Id | Out-File -Encoding ascii (Join-Path $PidDir "$Name.pid")
+  # 复原环境，避免污染后续服务
+  foreach ($k in $saved.Keys) {
+    if ($null -eq $saved[$k]) { Remove-Item "env:$k" -ErrorAction SilentlyContinue }
+    else { Set-Item -Path "env:$k" -Value $saved[$k] }
+  }
   Start-Sleep -Seconds 1
   if (Get-Pid $Name) { Write-Host "  $Name 启动 ✓ (pid $($p.Id))" } else { Write-Host "  $Name 启动失败，看 $LogDir\$Name.err" }
 }

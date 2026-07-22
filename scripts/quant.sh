@@ -46,16 +46,38 @@ else
   PY="python"
 fi
 
+# --- 多标的：额外并行引擎（迭代47，数据增速×(1+标的数)，零策略改动）---
+INSTRUMENTS="BTC-USDT-SWAP SOL-USDT-SWAP"
+
 # --- 服务定义（名称 -> 启动参数）---
 svc_args() {
   case "$1" in
-    engine) echo "-m quant.research.shadow_engine" ;;
+    engine|engine-*) echo "-m quant.research.shadow_engine" ;;
     agent)  echo "-m quant.cognitive.agent_runner" ;;
     web)    echo "-m uvicorn quant.webui.live_dashboard:app --host 127.0.0.1 --port 8000 --log-level warning" ;;
     *) echo "" ;;
   esac
 }
-ALL="engine agent web"
+
+# 某服务的专属环境变量（多标的引擎设 SHADOW_INST + 独立文件）；输出 KEY=VAL 每行一条
+svc_env() {
+  for inst in $INSTRUMENTS; do
+    sym="$(echo "${inst%%-*}" | tr '[:upper:]' '[:lower:]')"
+    if [ "$1" = "engine-$sym" ]; then
+      echo "SHADOW_INST=$inst"
+      echo "SHADOW_PERSIST=data/shadow_persist_$sym.json"
+      echo "SHADOW_OUT=data/shadow_state_$sym.json"
+      return
+    fi
+  done
+}
+
+# 全部服务列表：主ETH引擎 + 各标的引擎 + agent + web
+ALL="engine"
+for inst in $INSTRUMENTS; do
+  ALL="$ALL engine-$(echo "${inst%%-*}" | tr '[:upper:]' '[:lower:]')"
+done
+ALL="$ALL agent web"
 
 # --- WS 实时环境（可选）---
 apply_ws_env() {
@@ -81,11 +103,18 @@ start_one() {  # $1=name
   local name="$1" args; args="$(svc_args "$name")"
   [ -n "$args" ] || { echo "未知服务: $name"; return 1; }
   if is_running "$name"; then echo "  $name 已在运行 (pid $(cat "$PID_DIR/$name.pid"))"; return 0; fi
-  # shellcheck disable=SC2086
-  PYTHONIOENCODING=utf-8 nohup "$PY" $args >"$LOG_DIR/$name.log" 2>&1 &
-  echo $! >"$PID_DIR/$name.pid"
+  # 在子shell里应用该服务专属环境变量（多标的引擎），不污染父shell
+  (
+    while IFS= read -r kv; do [ -n "$kv" ] && export "$kv"; done <<EOF
+$(svc_env "$name")
+EOF
+    export PYTHONIOENCODING=utf-8
+    # shellcheck disable=SC2086
+    nohup "$PY" $args >"$LOG_DIR/$name.log" 2>&1 &
+    echo $! >"$PID_DIR/$name.pid"
+  )
   sleep 1
-  if is_running "$name"; then echo "  $name 启动 ✓ (pid $!)"; else echo "  $name 启动失败，看 $LOG_DIR/$name.log"; fi
+  if is_running "$name"; then echo "  $name 启动 ✓ (pid $(cat "$PID_DIR/$name.pid"))"; else echo "  $name 启动失败，看 $LOG_DIR/$name.log"; fi
 }
 
 stop_one() {  # $1=name

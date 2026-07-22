@@ -27,7 +27,7 @@ AGENT_STANCE = Path("data/agent_stance.json")
 SWITCH = Path("data/strategy_switch.json")   # 策略开关（UI/规则可停用，disabled=只出不进）
 OVERRIDES = Path("data/strategy_overrides.json")  # 策略管理模块的人工参数覆盖（热生效）
 
-INST = "ETH-USDT-SWAP"
+INST = os.environ.get("SHADOW_INST", "ETH-USDT-SWAP")  # 多标的：并行引擎各设此变量（迭代47）
 POLL_SEC = 3
 NOTIONAL = 100.0                 # 每笔虚拟名义（USD），统一口径便于对比
 TAKER_FEE = 0.0005               # 欧易 taker 单边；往返 = 2×
@@ -333,7 +333,9 @@ def _record_tick(book, feat, trades_summary: float) -> None:
     这是可回放回测的原始资产（R11：交易所不提供历史L2，自录不可补拍）。"""
     try:
         day = time.strftime("%Y-%m-%d")
-        f = Path("data/ticks") / f"{day}.jsonl"
+        # 多标的：ETH 保持原文件名不变(现有数据兼容)，其他标的加前缀避免碰撞（迭代47）
+        prefix = "" if INST == "ETH-USDT-SWAP" else f"{INST}_"
+        f = Path("data/ticks") / f"{prefix}{day}.jsonl"
         f.parent.mkdir(parents=True, exist_ok=True)
         rec = {
             "ts": int(time.time() * 1000),
