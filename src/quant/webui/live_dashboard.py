@@ -369,21 +369,18 @@ body{background:
   align-items:center;padding:2px 0}
 .bar b{color:var(--fg);font-family:var(--mono);font-weight:600}
 
-/* ---- 仪表盘网格：各版块一屏并排，内部滚动，不整页下滑 ---- */
-.dash{display:grid;grid-template-columns:1.5fr 1fr;gap:18px;align-items:stretch;margin-top:6px}
-@media (max-width:960px){.dash{grid-template-columns:1fr}}
-.side{display:flex;flex-direction:column;gap:2px;min-width:0}
-.side #agentbox .card{margin-bottom:14px}
-.panel-main{min-width:0;display:flex;flex-direction:column}
+/* ---- 仪表盘：策略表全宽，Agent+持仓并排，长表内部滚 ---- */
+.dash{display:grid;grid-template-columns:1fr 1.15fr;gap:18px;align-items:stretch;margin-top:6px}
+@media (max-width:1000px){.dash{grid-template-columns:1fr}}
+.dash>*{min-width:0}
+.dash #agentbox .card{margin-bottom:0;height:100%}
 .dash section{min-width:0;display:flex;flex-direction:column}
-.dash h2{margin:16px 0 9px}
-.panel-main>h2,.side section:first-of-type h2,.side>section:first-child h2{margin-top:2px}
-.side .agent-slot h2{margin-top:2px}
+.dash section h2{margin:2px 0 9px}
 /* 面板内滚动：表格封顶高度，内部滚，表头吸顶 */
-.scrolly{flex:1;min-height:220px;max-height:560px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
-.scrolly-sm{flex:1;min-height:150px;max-height:100%;overflow:auto;border:1px solid var(--bd);border-radius:12px}
-.scrolly table,#alltrades table{border:none;border-radius:0}
-.scrolly thead th,#alltrades thead th,.scrolly-sm thead th{position:sticky;top:0;z-index:2}
+.scrolly{max-height:400px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+#opentrades{flex:1;max-height:400px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+.scrolly table,#alltrades table,#opentrades table{border:none;border-radius:0}
+.scrolly thead th,#alltrades thead th,#opentrades thead th{position:sticky;top:0;z-index:2}
 #alltrades{max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
 .nowrap th,.nowrap td{white-space:nowrap}
 ::-webkit-scrollbar{width:9px;height:9px}
@@ -472,28 +469,25 @@ tr:last-child td{border-bottom:none}
 
 <div id=totalbox style=margin-top:14px></div>
 
-<div class=dash>
-  <!-- 左列：策略排行榜（主） -->
-  <section class=panel-main>
-    <h2>各策略汇总 · 按扣费净利排序</h2>
-    <div class=scrolly>
-      <table id=tbl><thead><tr>
-      <th>策略</th><th>信号/模式</th><th>止盈%</th><th>笔数</th><th>胜率</th>
-      <th>毛利$</th><th>手续费$</th><th>净利$</th><th>夏普</th><th>回撤$</th><th>净值曲线</th><th>开关</th>
-      </tr></thead><tbody id=rows><tr><td colspan=12 class=mut style=text-align:center;padding:24px>加载中…</td></tr></tbody></table>
-    </div>
-  </section>
-  <!-- 右列：Agent + 进行中交易 -->
-  <div class=side>
-    <div id=agentbox></div>
-    <section>
-      <h2>进行中的交易 · 实时浮动盈亏</h2>
-      <div class="trades scrolly-sm nowrap" id=opentrades></div>
-    </section>
-  </div>
+<!-- 策略排行榜：全宽，12列排得开不裁切 -->
+<h2>各策略汇总 · 按扣费净利排序</h2>
+<div class="scrolly" id=leadwrap>
+  <table id=tbl><thead><tr>
+  <th>策略</th><th>信号/模式</th><th>止盈%</th><th>笔数</th><th>胜率</th>
+  <th>毛利$</th><th>手续费$</th><th>净利$</th><th>夏普</th><th>回撤$</th><th>净值曲线</th><th>开关</th>
+  </tr></thead><tbody id=rows><tr><td colspan=12 class=mut style=text-align:center;padding:24px>加载中…</td></tr></tbody></table>
 </div>
 
-<!-- 成交明细：全宽独立行，宽表格给足宽度 -->
+<!-- Agent 观点 + 进行中交易 并排 -->
+<div class=dash>
+  <div id=agentbox></div>
+  <section>
+    <h2>进行中的交易 · 实时浮动盈亏</h2>
+    <div class="trades nowrap" id=opentrades></div>
+  </section>
+</div>
+
+<!-- 成交明细：全宽 -->
 <h2>成交明细 · 买卖价 / 获利<span id=tradecount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></h2>
 <div class="trades nowrap" id=alltrades></div>
 
@@ -663,7 +657,7 @@ function spark(curve){
 function bigCurve(curve){
   if(!curve||curve.length<2)return'<span class=mut style=font-size:12px>待成交积累</span>';
   const vals=curve.map(p=>p[1]),ts=curve.map(p=>p[0]);
-  const w=1160,h=180,padL=8,padR=8,padT=10,padB=22;
+  const w=1160,h=132,padL=8,padR=8,padT=10,padB=20;
   const min=Math.min(...vals,0),max=Math.max(...vals,0),rng=(max-min)||1;
   const X=i=>(padL+i/(curve.length-1)*(w-padL-padR)).toFixed(1);
   const Y=v=>(padT+(max-v)/rng*(h-padT-padB)).toFixed(1);
