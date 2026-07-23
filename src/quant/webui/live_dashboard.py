@@ -238,7 +238,20 @@ def trades_page(offset: int = 0, limit: int = 50, inst: str = "ETH") -> JSONResp
         for t in s.get("trades", []):
             allt.append({**t, "strategy": s["name"]})
     allt.sort(key=lambda x: x.get("ts", 0), reverse=True)
-    return JSONResponse({"trades": allt[offset:offset + limit], "total": len(allt)})
+    # 该标的全部成交的总体盈亏汇总
+    net = sum(t.get("net_usd", 0.0) for t in allt)
+    gross = sum(t.get("net_usd", 0.0) + t.get("fee_usd", 0.0) for t in allt)
+    fee = sum(t.get("fee_usd", 0.0) for t in allt)
+    wins = sum(1 for t in allt if t.get("net_usd", 0.0) > 0)
+    n = len(allt)
+    return JSONResponse({
+        "trades": allt[offset:offset + limit], "total": n,
+        "summary": {
+            "net_usd": round(net, 2), "gross_usd": round(gross, 2),
+            "fee_usd": round(fee, 2), "wins": wins,
+            "win_rate": round(wins / n * 100, 1) if n else 0.0,
+        },
+    })
 
 
 def _total_portfolio() -> dict:
@@ -543,7 +556,10 @@ tr:last-child td{border-bottom:none}
 </div>
 
 <!-- 成交明细：全宽 -->
-<h2>成交明细 · 买卖价 / 获利<span id=tradecount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></h2>
+<h2 style="justify-content:space-between">
+  <span style=display:flex;align-items:center;gap:8px>成交明细 · 买卖价 / 获利<span id=tradecount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></span>
+  <span id=tradesum style=text-transform:none;letter-spacing:0;font-weight:400></span>
+</h2>
 <div class="trades nowrap" id=alltrades></div>
 
 <div class=note id=verdict></div>
@@ -756,6 +772,11 @@ async function loadMoreTrades(){
     else tb.insertAdjacentHTML('beforeend',r.trades.map(tradeRow).join(''));
     tradeOffset+=r.trades.length;tradeTotal=r.total;
     $('tradeend').textContent=tradeOffset>=tradeTotal?'— 已全部加载 '+tradeTotal+' 笔 —':'下滑加载更多…';
+    // 该标的总体盈亏汇总（显示在标题右侧）
+    if(r.summary){const s=r.summary;const el=$('tradesum');if(el){
+      const c=s.net_usd>=0?'up':'dn';
+      el.innerHTML=`<span class=${c} style=font-weight:700;font-size:15px>${s.net_usd>=0?'+':''}${f(s.net_usd,2)} USDT</span>`+
+        ` <span class=mut style=font-size:12px>净利 · 毛利 ${s.gross_usd>=0?'+':''}${f(s.gross_usd,2)} · 手续费 -${f(s.fee_usd,2)} · 胜率 ${s.win_rate}% · ${r.total}笔</span>`;}}
   }catch(e){}
   tradeLoading=false;
 }
