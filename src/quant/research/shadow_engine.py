@@ -43,7 +43,7 @@ class Strategy:
     def __init__(self, name, signal, mode, entry_th, tp_pct, max_hold_sec, cooldown=15,
                  sl_pct=None, author="human", min_range=None,
                  trail_arm=None, trail_gap=None, trend_gate=None, trail_frac=None,
-                 fee_pct=None):
+                 fee_pct=None, regime_max=None):
         self.name = name
         self.signal = signal
         self.mode = mode
@@ -59,6 +59,7 @@ class Strategy:
         self.trend_gate = trend_gate  # 顺势闸门：逆30m动量超此阈值不开仓（迭代39：OBI陷阱教训）
         self.trail_frac = trail_frac  # 比例追踪：回撤到峰值的(1-frac)即离场，随行情缩放（迭代46：固定gap在小行情全回吐）
         self.fee_pct = fee_pct if fee_pct is not None else ROUNDTRIP_FEE_PCT  # 往返费率：maker可低至0.04%（迭代58费用墙）
+        self.regime_max = regime_max  # 择时过滤：|mom30m|≥此值(强趋势)不开仓，均值回归只做震荡市（迭代103）
         # 状态
         self.pos = 0                 # 0 / +1 多 / -1 空
         self.entry_px = 0.0
@@ -89,6 +90,12 @@ class Strategy:
                     m30 = feat.get("mom30m", 0.0)
                     if (side > 0 and m30 < -self.trend_gate) or \
                        (side < 0 and m30 > self.trend_gate):
+                        self.prev_dir = cur_dir
+                        return
+                # 择时过滤（迭代103）：均值回归亏损单MAE深0.35%(被趋势打穿) vs 赢单0.08%。
+                # 强趋势市(|mom30m|大)不开均值回归——只在震荡市入场，砍掉深MAE的趋势亏损。
+                if getattr(self, "regime_max", None) is not None:
+                    if abs(feat.get("mom30m", 0.0)) >= self.regime_max:
                         self.prev_dir = cur_dir
                         return
                 self.pos = side
@@ -359,6 +366,12 @@ def make_strategies():
         Strategy("均值回归·高捕获", "meanrev1h", "mom", 0.5, 0.008, 7200,
                  cooldown=300, sl_pct=0.003, author="agent",
                  trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032),  # 锁定峰值75%+maker(OKB抵扣0.032%)
+        # ---- 迭代103（择时过滤）：均值回归亏损单MAE深0.35%(趋势打穿) vs 赢单0.08%。----
+        # 亏损全来自趋势市入场。加regime_max：|mom30m|≥0.35(强趋势)不开仓，只做震荡市。
+        # 基于高捕获(最优出场)+择时，单变量检验"剔除趋势市入场"能否把边际edge推成稳定正。
+        Strategy("均值回归·择时", "meanrev1h", "mom", 0.5, 0.008, 7200,
+                 cooldown=300, sl_pct=0.003, author="agent",
+                 trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032, regime_max=0.35),  # 强趋势不开仓
     ]
     # 按当前标的波动率缩放"价格距离"类参数（止损/止盈/追踪武装/固定回撤），
     # 使同一策略在各市场都有波动率适配的空间。信号阈值/比例/费率不缩放。
