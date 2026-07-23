@@ -250,6 +250,13 @@ def _total_portfolio() -> dict:
     for _, v in curve:
         peak = max(peak, v)
         mdd = min(mdd, v - peak)
+    # 资金账户视角：每策略名义 $100 子账户，总盘起始 = 策略数 × 100
+    notional = 100.0
+    n_strat = len(strat_names)
+    start_cap = n_strat * notional
+    cur_cap = start_cap + cum
+    ret_pct = (cum / start_cap * 100) if start_cap else 0.0
+    mdd_pct = (mdd / start_cap * 100) if start_cap else 0.0
     return {
         "net_usd": round(cum, 2),
         "trades": len(allt),
@@ -257,7 +264,11 @@ def _total_portfolio() -> dict:
         "max_dd": round(mdd, 2),
         "curve": curve_ds,
         "instruments": len(seen),
-        "strat": len(strat_names),
+        "strat": n_strat,
+        "start_capital": round(start_cap, 2),
+        "current_capital": round(cur_cap, 2),
+        "return_pct": round(ret_pct, 2),
+        "max_dd_pct": round(mdd_pct, 2),
     }
 
 
@@ -592,16 +603,36 @@ async function tick(){
   const T=d.total;
   if(T){
     const cls=T.net_usd>=0?'up':'dn';
+    const pnlLabel=T.net_usd>=0?'盈利总额':'亏损总额';
+    const pctLabel=T.return_pct>=0?'盈利百分比':'亏损百分比';
     $('totalbox').innerHTML=`<div class=card style="border-color:${T.net_usd>=0?'#238636':'#7d3232'};background:linear-gradient(180deg,rgba(88,166,255,.05),transparent)">
-      <div class=row style="margin:0;align-items:flex-start;flex-wrap:wrap;gap:10px">
-        <div><b style=font-size:16px>💰 总盘资金情况</b>
-          <div class=mut style=font-size:12px;margin-top:2px>全 ${T.instruments} 标的(ETH·BTC·SOL) · 全 ${T.strat||'?'} 策略累计 · 每策略名义 $${d.notional} · 扣真实手续费</div></div>
-        <div style=text-align:right;margin-left:auto>
-          <div class="big ${cls}" style=font-size:30px;line-height:1>${T.net_usd>=0?'+':''}${f(T.net_usd,2)} <span style=font-size:13px>USDT</span></div>
-          <div class=mut style=font-size:12px;margin-top:3px>${T.trades} 笔 · 胜率 ${T.win_rate}% · 最大回撤 <span class=dn>${f(T.max_dd,2)}</span></div>
-        </div>
+      <div class=row style="margin:0 0 12px;align-items:center;flex-wrap:wrap;gap:8px">
+        <b style=font-size:16px>💰 总盘资金情况</b>
+        <span class=mut style=font-size:12px>全 ${T.instruments} 标的(ETH·BTC·SOL) · ${T.strat||'?'} 策略 · 每策略名义 $${d.notional} · 扣真实手续费</span>
       </div>
-      <div style=margin-top:6px;font-size:12px;color:var(--mut)>资金变化曲线（按时间累计净值，绿=盈利区/红=亏损区）</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+        <div style=background:var(--card);padding:12px 14px>
+          <div class=mut style=font-size:11px>起始资金</div>
+          <div style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>$${f(T.start_capital,2)}</div></div>
+        <div style=background:var(--card);padding:12px 14px>
+          <div class=mut style=font-size:11px>当前资金</div>
+          <div class="${cls}" style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>$${f(T.current_capital,2)}</div></div>
+        <div style=background:var(--card);padding:12px 14px>
+          <div class=mut style=font-size:11px>${pnlLabel}</div>
+          <div class="${cls}" style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>${T.net_usd>=0?'+':''}${f(T.net_usd,2)}</div></div>
+        <div style=background:var(--card);padding:12px 14px>
+          <div class=mut style=font-size:11px>${pctLabel}</div>
+          <div class="${cls}" style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>${T.return_pct>=0?'+':''}${f(T.return_pct,2)}%</div></div>
+        <div style=background:var(--card);padding:12px 14px>
+          <div class=mut style=font-size:11px>胜率</div>
+          <div style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>${T.win_rate}%</div>
+          <div class=mut style=font-size:10px>${T.trades} 笔</div></div>
+        <div style=background:var(--card);padding:12px 14px>
+          <div class=mut style=font-size:11px>最大回撤</div>
+          <div class=dn style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>${f(T.max_dd_pct,2)}%</div>
+          <div class=mut style=font-size:10px>$${f(T.max_dd,2)}</div></div>
+      </div>
+      <div style=margin-top:14px;font-size:12px;color:var(--mut)>📈 资金变化曲线（按时间累计，绿=盈利区 / 红=亏损区）</div>
       <div style=margin-top:4px>${bigCurve(T.curve)}</div>
     </div>`;
   }else{
