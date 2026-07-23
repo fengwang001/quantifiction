@@ -220,6 +220,7 @@ def _total_portfolio() -> dict:
     files = ["data/shadow_persist.json"] + glob.glob("data/shadow_persist_*.json")
     seen = set()
     allt = []
+    strat_names = set()
     for fp in files:
         if fp in seen or not Path(fp).exists():
             continue
@@ -229,6 +230,7 @@ def _total_portfolio() -> dict:
         except Exception:  # noqa: BLE001
             continue
         for s in d.get("strategies", []):
+            strat_names.add(s.get("name", ""))
             for t in s.get("trades", []):
                 allt.append((int(t.get("ts", 0)), float(t.get("net_usd", 0.0))))
     allt.sort(key=lambda x: x[0])
@@ -255,6 +257,7 @@ def _total_portfolio() -> dict:
         "max_dd": round(mdd, 2),
         "curve": curve_ds,
         "instruments": len(seen),
+        "strat": len(strat_names),
     }
 
 
@@ -584,22 +587,27 @@ async function tick(){
     document.querySelectorAll('.freq').forEach(b=>{if(+b.dataset.s===intv)b.classList.add('freqon')});
   }else $('agentbox').innerHTML='<div class=card style=color:var(--mut)>🤖 Agent 认知层：等待首次辩论（agent_runner 启动后约30秒出观点）…</div>';
 
-  // 总盘资金 + 组合净值曲线
+  // 总盘资金 + 资金变化曲线（独立容错，不影响整页）
+  try{
   const T=d.total;
   if(T){
     const cls=T.net_usd>=0?'up':'dn';
-    $('totalbox').innerHTML=`<div class=card style="border-color:${T.net_usd>=0?'#238636':'#7d3232'}">
-      <div class=row style="margin:0;align-items:flex-start">
-        <div><b>💰 总盘资金（全${T.instruments}标的 · 全策略累计）</b>
-          <div class=mut style=font-size:12px;margin-top:2px>影子实验总盈亏 · 起始每策略名义$${d.notional} · 扣真实手续费</div></div>
-        <div style=text-align:right>
-          <div class="big ${cls}" style=font-size:26px>${T.net_usd>=0?'+':''}${f(T.net_usd,2)} <span style=font-size:13px>USDT</span></div>
-          <div class=mut style=font-size:12px>${T.trades}笔 · 胜率${T.win_rate}% · 最大回撤${f(T.max_dd,2)}</div>
+    $('totalbox').innerHTML=`<div class=card style="border-color:${T.net_usd>=0?'#238636':'#7d3232'};background:linear-gradient(180deg,rgba(88,166,255,.05),transparent)">
+      <div class=row style="margin:0;align-items:flex-start;flex-wrap:wrap;gap:10px">
+        <div><b style=font-size:16px>💰 总盘资金情况</b>
+          <div class=mut style=font-size:12px;margin-top:2px>全 ${T.instruments} 标的(ETH·BTC·SOL) · 全 ${T.strat||'?'} 策略累计 · 每策略名义 $${d.notional} · 扣真实手续费</div></div>
+        <div style=text-align:right;margin-left:auto>
+          <div class="big ${cls}" style=font-size:30px;line-height:1>${T.net_usd>=0?'+':''}${f(T.net_usd,2)} <span style=font-size:13px>USDT</span></div>
+          <div class=mut style=font-size:12px;margin-top:3px>${T.trades} 笔 · 胜率 ${T.win_rate}% · 最大回撤 <span class=dn>${f(T.max_dd,2)}</span></div>
         </div>
       </div>
-      <div style=margin-top:12px>${bigCurve(T.curve)}</div>
+      <div style=margin-top:6px;font-size:12px;color:var(--mut)>资金变化曲线（按时间累计净值，绿=盈利区/红=亏损区）</div>
+      <div style=margin-top:4px>${bigCurve(T.curve)}</div>
     </div>`;
+  }else{
+    $('totalbox').innerHTML='<div class=card style=color:var(--mut)>💰 总盘资金：等待成交数据聚合…</div>';
   }
+  }catch(e){ $('totalbox').innerHTML='<div class=card style=color:var(--mut)>💰 总盘资金：渲染中…</div>'; }
 
   // 进行中的交易（最上面）
   const OT=d.open_trades||[];
