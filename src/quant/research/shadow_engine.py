@@ -371,7 +371,7 @@ def make_strategies():
         # 基于高捕获(最优出场)+择时，单变量检验"剔除趋势市入场"能否把边际edge推成稳定正。
         Strategy("均值回归·择时", "meanrev1h", "mom", 0.5, 0.008, 7200,
                  cooldown=300, sl_pct=0.003, author="agent",
-                 trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032, regime_max=0.35),  # 强趋势不开仓
+                 trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032, regime_max=0.7),  # 仅拦强趋势(|mom30m|≥0.7=30min涨跌≥0.28%)
     ]
     # 按当前标的波动率缩放"价格距离"类参数（止损/止盈/追踪武装/固定回撤），
     # 使同一策略在各市场都有波动率适配的空间。信号阈值/比例/费率不缩放。
