@@ -1,0 +1,306 @@
+<title>Quantifiction · 66轮进化研究报告</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{
+  --ground:#14181f; --panel:#1b212b; --panel2:#222a35;
+  --ink:#e9e5da; --muted:#8b93a1; --faint:#5c6472;
+  --brass:#c8a04a; --brass-dim:#9a7d3c;
+  --pos:#5fa88a; --neg:#cd7263;
+  --hair:rgba(200,160,74,.16); --hair2:rgba(255,255,255,.06);
+  --serif:ui-serif,"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,"Cascadia Code",Menlo,monospace;
+}
+@media (prefers-color-scheme:light){
+  :root{--ground:#f4f0e6;--panel:#faf7ef;--panel2:#f0ebdd;--ink:#232019;--muted:#5f6470;
+    --faint:#8a8f9a;--brass:#9a7326;--brass-dim:#b89a55;--pos:#3f7d63;--neg:#b0503f;
+    --hair:rgba(120,90,20,.18);--hair2:rgba(0,0,0,.06);}
+}
+:root[data-theme="dark"]{--ground:#14181f;--panel:#1b212b;--panel2:#222a35;--ink:#e9e5da;
+  --muted:#8b93a1;--faint:#5c6472;--brass:#c8a04a;--pos:#5fa88a;--neg:#cd7263;
+  --hair:rgba(200,160,74,.16);--hair2:rgba(255,255,255,.06);}
+:root[data-theme="light"]{--ground:#f4f0e6;--panel:#faf7ef;--panel2:#f0ebdd;--ink:#232019;
+  --muted:#5f6470;--faint:#8a8f9a;--brass:#9a7326;--brass-dim:#b89a55;--pos:#3f7d63;
+  --neg:#b0503f;--hair:rgba(120,90,20,.18);--hair2:rgba(0,0,0,.06);}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);
+  line-height:1.65;-webkit-font-smoothing:antialiased;font-size:16.5px}
+.wrap{max-width:820px;margin:0 auto;padding:0 24px}
+h1,h2,h3{font-family:var(--serif);font-weight:600;text-wrap:balance;line-height:1.15}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.eyebrow{font-family:var(--mono);font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--brass);font-weight:600}
+.pos{color:var(--pos)} .neg{color:var(--neg)}
+hr{border:0;border-top:1px solid var(--hair);margin:0}
+
+/* hero */
+header{padding:76px 0 52px;border-bottom:1px solid var(--hair);
+  background:linear-gradient(180deg,var(--panel) 0%,var(--ground) 100%)}
+header h1{font-size:clamp(34px,6vw,58px);margin:.35em 0 .3em;letter-spacing:-.01em}
+header .lede{font-size:19px;color:var(--muted);max-width:60ch;margin:0}
+.statrow{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;margin-top:44px;
+  background:var(--hair);border:1px solid var(--hair);border-radius:8px;overflow:hidden}
+.stat{background:var(--panel);padding:18px 16px}
+.stat .n{font-family:var(--mono);font-size:26px;font-weight:600;letter-spacing:-.02em}
+.stat .l{font-size:12px;color:var(--muted);margin-top:3px}
+@media(max-width:620px){.statrow{grid-template-columns:repeat(2,1fr)}}
+
+section{padding:52px 0;border-bottom:1px solid var(--hair)}
+section h2{font-size:27px;margin:0 0 .2em}
+.sub{color:var(--muted);margin:.1em 0 1.8em;max-width:64ch}
+p{max-width:66ch}
+
+/* verdict */
+.verdict{background:var(--panel);border:1px solid var(--hair);border-left:3px solid var(--brass);
+  border-radius:8px;padding:26px 28px;margin:8px 0}
+.verdict .k{font-family:var(--serif);font-size:22px;line-height:1.4;margin:0}
+.verdict .k b{color:var(--brass)}
+
+/* fee wall diagram */
+.wall{background:var(--panel);border:1px solid var(--hair);border-radius:10px;padding:34px 30px 26px}
+.axis{position:relative;height:130px;margin:34px 6px 8px}
+.line{position:absolute;top:86px;left:0;right:0;height:2px;background:var(--hair2)}
+.line::after{content:"";position:absolute;right:-1px;top:-4px;border:5px solid transparent;
+  border-left-color:var(--faint)}
+.tick{position:absolute;top:0;bottom:0;width:0}
+.tick .bar{position:absolute;top:74px;height:26px;width:2px;background:var(--faint)}
+.tick .cap{position:absolute;top:96px;transform:translateX(-50%);font-family:var(--mono);
+  font-size:12px;color:var(--muted);white-space:nowrap}
+.tick .val{position:absolute;top:40px;transform:translateX(-50%);font-family:var(--mono);
+  font-size:13px;font-weight:600;white-space:nowrap}
+.tick.fee .bar{background:var(--neg);height:34px;top:66px}
+.tick.fee .val{color:var(--neg)}
+.tick.maker .bar{background:var(--brass);height:34px;top:66px}
+.tick.maker .val{color:var(--brass)}
+.tick.edge{top:0}
+.tick.edge .flag{position:absolute;top:0;transform:translateX(-50%);background:var(--pos);
+  color:#0d1a14;font-family:var(--mono);font-size:12px;font-weight:700;padding:4px 9px;
+  border-radius:5px;white-space:nowrap}
+.tick.edge .stem{position:absolute;top:26px;height:48px;width:2px;background:var(--pos);
+  transform:translateX(-1px)}
+.zone{position:absolute;top:82px;height:10px;border-radius:5px}
+.zone.win{background:linear-gradient(90deg,rgba(95,168,138,.35),rgba(95,168,138,.05))}
+.zone.lose{background:linear-gradient(90deg,rgba(205,114,99,.08),rgba(205,114,99,.32))}
+.walllegend{display:flex;flex-wrap:wrap;gap:18px;margin-top:22px;font-size:13px;color:var(--muted)}
+.walllegend span{display:inline-flex;align-items:center;gap:7px}
+.dot{width:10px;height:10px;border-radius:2px;flex:none}
+
+/* strategy bars */
+.bars{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.brow{display:grid;grid-template-columns:180px 1fr auto;align-items:center;gap:14px;
+  padding:9px 0;border-bottom:1px solid var(--hair2)}
+.brow .nm{font-size:13.5px;font-weight:500}
+.brow .nm small{display:block;color:var(--faint);font-family:var(--mono);font-size:11px}
+.track{position:relative;height:22px;background:var(--hair2);border-radius:4px;overflow:hidden}
+.track .g{position:absolute;top:0;bottom:0;left:50%;background:rgba(95,168,138,.30)}
+.track .n{position:absolute;top:0;bottom:0;right:50%;background:rgba(205,114,99,.42)}
+.track .mid{position:absolute;top:-3px;bottom:-3px;left:50%;width:1px;background:var(--faint)}
+.brow .val{font-family:var(--mono);font-size:13px;text-align:right;min-width:118px}
+.brow .val .g2{color:var(--pos)} .brow .val .n2{color:var(--neg)}
+@media(max-width:620px){.brow{grid-template-columns:130px 1fr}.brow .val{grid-column:2;text-align:left;margin-top:-4px}}
+
+/* lessons */
+.lessons{display:flex;flex-direction:column;gap:0}
+.lesson{display:grid;grid-template-columns:52px 1fr;gap:20px;padding:20px 0;
+  border-bottom:1px solid var(--hair2)}
+.lesson .id{font-family:var(--mono);font-size:13px;color:var(--brass);font-weight:600;padding-top:2px}
+.lesson h3{font-size:17px;margin:0 0 .3em}
+.lesson p{font-size:14.5px;color:var(--muted);margin:0}
+.lesson .data{font-family:var(--mono);font-size:12.5px;color:var(--faint);margin-top:6px}
+
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media(max-width:620px){.two{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--hair);border-radius:8px;padding:22px 22px}
+.card h3{font-size:16px;margin:0 0 .5em;color:var(--brass)}
+.card p{font-size:14px;color:var(--muted);margin:0}
+
+footer{padding:44px 0 70px;color:var(--faint);font-size:13px}
+footer .mono{font-size:12px}
+a{color:var(--brass)}
+.toggle{position:fixed;top:16px;right:16px;z-index:10;background:var(--panel);
+  border:1px solid var(--hair);color:var(--muted);border-radius:20px;padding:7px 14px;
+  font-family:var(--mono);font-size:11px;cursor:pointer;letter-spacing:.05em}
+.toggle:focus-visible{outline:2px solid var(--brass);outline-offset:2px}
+</style>
+
+<button class="toggle" id="tg" aria-label="切换主题">◐ 主题</button>
+
+<header>
+  <div class="wrap">
+    <div class="eyebrow">影子进化实验 · 研究报告</div>
+    <h1>把 $100 高频量化<br>榨到市场效率墙</h1>
+    <p class="lede">66 轮评估、1825 笔真实行情纸面交易、21 个策略、3 个标的。一条从证伪到 pivot 的完整证据链——以及一个诚实的结论。</p>
+    <div class="statrow">
+      <div class="stat"><div class="n">66</div><div class="l">评估轮次</div></div>
+      <div class="stat"><div class="n">1,825</div><div class="l">真实成交(纸面)</div></div>
+      <div class="stat"><div class="n">21</div><div class="l">策略变体</div></div>
+      <div class="stat"><div class="n mono">$0</div><div class="l">真金投入(零风险)</div></div>
+    </div>
+  </div>
+</header>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">核心结论</div>
+    <div class="verdict" style="margin-top:16px">
+      <p class="k">策略有<b>真实的正 edge</b>——但它恰好<b>卡在 maker 费与 taker 费之间</b>。微观结构信号的可预测性已被市场充分定价,剩下的毛利薄到无法扣费后稳定盈利。这不是策略缺陷,是<b>市场效率墙</b>。</p>
+    </div>
+    <p style="margin-top:24px">整个实验在<strong>影子模式</strong>下进行:策略按欧易真实行情成交、扣真实手续费记账,但不下真单——盈亏结论可信,风险为零。资本保全是第一约束,所以先用零成本证伪,再谈真金。</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">决定性发现</div>
+    <h2>费用墙:edge 恰好卡在两种费率之间</h2>
+    <p class="sub">把最优策略(均值回归·优化出场)的毛利除到每笔,答案一目了然。绿色区间才盈利,而 edge 落点几乎贴着 maker 费。</p>
+    <div class="wall">
+      <div class="axis">
+        <div class="zone lose" style="left:0;width:40%"></div>
+        <div class="zone win" style="left:40%;right:0;width:auto"></div>
+        <div class="line"></div>
+        <div class="tick edge" style="left:41%">
+          <div class="flag">edge +0.041 / 笔</div>
+          <div class="stem"></div>
+        </div>
+        <div class="tick maker" style="left:40%">
+          <div class="val">0.040</div><div class="bar"></div>
+          <div class="cap">maker 费</div>
+        </div>
+        <div class="tick fee" style="left:100%">
+          <div class="val">0.100</div><div class="bar"></div>
+          <div class="cap" style="transform:translateX(-90%)">taker 费</div>
+        </div>
+        <div class="tick" style="left:0"><div class="bar"></div><div class="cap">0</div></div>
+      </div>
+      <div class="walllegend">
+        <span><i class="dot" style="background:var(--pos)"></i>maker 净 = 0.041 − 0.040 = <b class="pos" style="margin-left:4px">+0.001 ≈ 0</b></span>
+        <span><i class="dot" style="background:var(--neg)"></i>taker 净 = 0.041 − 0.100 = <b class="neg" style="margin-left:4px">−0.059</b></span>
+      </div>
+    </div>
+    <p style="margin-top:22px">Edge 随样本单调收窄:<span class="mono">+0.102 → +0.068 → +0.041</span>。第 61 轮那个净值转正的"突破",被更大的样本证明是 regime 运气。真实 edge 约 <span class="mono">+0.04/笔</span>——**刚好覆盖不住 maker 费,更别提 taker。**</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">21 策略全景 · 毛利 vs 净值</div>
+    <h2>手续费吃掉了一切</h2>
+    <p class="sub">左红为净亏、右绿为毛利(免手续费)。凡是毛利为正、净值为负的,差额全是手续费——这就是费用墙的全景证据。</p>
+    <div class="bars" id="bars"></div>
+    <p style="margin-top:20px;font-size:14px;color:var(--muted)">最耐人寻味的是底部四个:<span class="mono">CVD反转 / OBI反转 / OBI动量 / CVD动量</span>——240~297 笔分钟级高频,毛利≈0,净亏 −24~−30 <span class="neg">全是手续费</span>。这是"高频微观套利"最彻底的证伪。</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">进化证据链 · 从血亏到逼近打平</div>
+    <h2>66 轮里学到的六件事</h2>
+    <p class="sub">每一条都由真实成交数据逼出来,不是先验假设。老策略与数据全程保留作对照(宪法 V)。</p>
+    <div class="lessons">
+      <div class="lesson"><div class="id">01</div><div>
+        <h3>分钟级高频必亏</h3>
+        <p>止盈从未触发,信号无预测力,净亏精确等于手续费。</p>
+        <div class="data">1215 笔 · 净亏 = 手续费 · edge ≈ 0</div></div></div>
+      <div class="lesson"><div class="id">02</div><div>
+        <h3>换到小时级波段,毛利才盖得住费</h3>
+        <p>把时间尺度从分钟拉到小时,单笔毛利变成手续费的 3–8 倍。</p>
+        <div class="data">TP 0.8–1.5% · 持仓 2–4h</div></div></div>
+      <div class="lesson"><div class="id">03</div><div>
+        <h3>固定止盈收集回吐 → 追踪止损</h3>
+        <p>浮盈冲到 +0.4~0.8% 却回吐过半。追踪止损锁住利润,曾 17/17 全胜。</p>
+        <div class="data">trail 出场 · 早期 16/16 → 17/17</div></div></div>
+      <div class="lesson"><div class="id">04</div><div>
+        <h3>固定 gap 不缩放 → 比例追踪</h3>
+        <p>固定回撤在小行情等于没保护(gap≈MFE 全回吐)。改为锁定峰值 60%,随行情自动缩放。</p>
+        <div class="data">同笔:比例 +0.070 vs 固定宽 −0.110</div></div></div>
+      <div class="lesson"><div class="id">05</div><div>
+        <h3>一笔止损抹掉四笔盈利 → 紧止损</h3>
+        <p>34 笔止损中 74% 从没顺过就被打。收紧止损削亏且不牺牲利润,盈亏比 0.51→0.71。</p>
+        <div class="data">SL 均亏 −0.481 vs −0.613</div></div></div>
+      <div class="lesson"><div class="id">06</div><div>
+        <h3>最佳出场≠通用:与信号相互作用</h3>
+        <p>紧止损利于动量(亏损单一路向下),却可能误伤均值回归(需空间让回归发生)。别被小样本带偏。</p>
+        <div class="data">出场机制 × 信号,非独立</div></div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">Pivot · 转向结构性 edge</div>
+    <h2>微观结构榨干后,转资金费 carry</h2>
+    <p class="sub">既然微观结构信号触墙,唯一出路是找一个不被 HFT 竞争掉的结构性 edge——永续每 8h 的资金费。</p>
+    <div class="two">
+      <div class="card">
+        <h3>为什么是 carry</h3>
+        <p>资金费是持仓补偿,结构性存在。市场中性建模(perp + spot 对冲),价格 PnL 抵消,只收资金费——不赌方向。</p>
+      </div>
+      <div class="card">
+        <h3>当前的诚实现实</h3>
+        <p>费率过低(ETH 年化 0.7%、BTC 4.2%),且中性对冲的 spot 腿费用高。carry 引擎正确地空仓等待,不强凑交易。</p>
+      </div>
+    </div>
+    <p style="margin-top:22px">carry 只在费率走高时才明显盈利(牛市资金费常冲到 0.05–0.1%/8h ≈ 年化 50–100%)。引擎已就位,等一个更好的 regime。</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="eyebrow">这份报告真正证明了什么</div>
+    <h2>不能稳定盈利,是一个有价值的结论</h2>
+    <p>把一堆注定亏损的高频信号,经过 66 轮数据驱动的进化,打磨到<strong>逼近盈亏平衡、毛利转正</strong>,并精确定位到<strong>费用/市场效率</strong>是唯一剩余障碍——这本身就是扎实的科学成果。它诚实地回答了"$100 高频量化能否稳定盈利":<strong>在当前平静、低波动、低资金费的 regime 下,零售费率会吃掉那点微弱的 edge。</strong></p>
+    <div class="verdict" style="margin-top:26px">
+      <p class="k">真正能改变局面的三条路:①等一个高波动 / 高资金费的 regime;②换更低费率的执行(<b>maker 限价挂单</b> / VIP 返佣);③接受"当前无 edge"并停手。<b>继续硬调参数只会重蹈手续费血亏的覆辙。</b></p>
+    </div>
+    <p style="margin-top:24px;color:var(--muted);font-size:14.5px">而最重要的一条工程铁律,已经被数据钉死:<strong style="color:var(--ink)">实盘必须用限价挂单(maker),绝不能用市价单(taker)</strong>——否则再好的策略,都会被 0.10% 的 taker 费吃平。</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="mono">Quantifiction · 加密量化影子进化平台 · 66 轮评估 / 67 份循环报告归档</div>
+    <div class="mono" style="margin-top:6px;color:var(--faint)">欧易永续(ETH·BTC·SOL) · 实时 WS 行情 · 宪法治理 v1.0.0 · 资本保全第一约束</div>
+    <div style="margin-top:14px">数据截至第 66 轮 · 所有策略与成交数据全程保留作证据 · 影子模式零真金风险</div>
+  </div>
+</footer>
+
+<script>
+const DATA=[
+  ["均值回归·maker","meanrev · maker",-0.03,0.97],
+  ["均值回归1h","meanrev · 标准",-1.80,1.80],
+  ["均值回归·优化出场","meanrev · 优化",-2.35,1.65],
+  ["OBI波段(低频对照)","obi · 波段",-5.38,-1.58],
+  ["追踪灵敏版","obi · trail",-5.42,-0.82],
+  ["比例·紧止损","obi · 比例+紧",-5.96,-1.66],
+  ["非对称·追踪止损","obi · 非对称",-5.81,-2.51],
+  ["Agent增强(LLM+OBI)","llm+obi",-15.61,-7.61],
+  ["趋势动量30m","mom30m",-15.60,-10.40],
+  ["OBI动量·宽止盈","obi · 高频",-15.26,1.04],
+  ["OBI反转","obi · 分钟",-23.57,0.43],
+  ["OBI动量","obi · 分钟",-24.90,-0.30],
+  ["CVD动量","cvd · 分钟",-28.65,-1.75],
+  ["CVD反转","cvd · 分钟",-29.88,-0.18],
+];
+const maxAbs=Math.max(...DATA.flatMap(d=>[Math.abs(d[2]),Math.abs(d[3])]));
+const bars=document.getElementById('bars');
+DATA.forEach(([nm,sub,net,gross])=>{
+  const gp=Math.max(0,gross)/maxAbs*50, gn=Math.max(0,-gross)/maxAbs*50;
+  const np=Math.max(0,-net)/maxAbs*50;
+  const row=document.createElement('div');row.className='brow';
+  row.innerHTML=`<div class="nm">${nm}<small>${sub}</small></div>
+    <div class="track"><div class="mid"></div>
+      <div class="n" style="width:${np}%"></div>
+      ${gross>=0?`<div class="g" style="width:${gp}%"></div>`:`<div class="n" style="width:${gn}%;right:auto;left:${50-gn}%;background:rgba(205,114,99,.22)"></div>`}
+    </div>
+    <div class="val"><span class="n2">${net.toFixed(2)}</span> <span style="color:var(--faint)">/</span> <span class="${gross>=0?'g2':'n2'}">${gross>=0?'+':''}${gross.toFixed(2)}</span></div>`;
+  bars.appendChild(row);
+});
+// theme toggle
+const tg=document.getElementById('tg'),root=document.documentElement;
+tg.addEventListener('click',()=>{
+  const cur=root.getAttribute('data-theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
+  root.setAttribute('data-theme',cur==='dark'?'light':'dark');
+});
+</script>

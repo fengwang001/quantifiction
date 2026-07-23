@@ -3,6 +3,7 @@
 加密货币量化交易研究平台（欧易 OKX 永续 · LLM 认知层 · 影子多策略进化）。
 **第一约束：资本保全**——一切设计服从"先零成本证伪，再谈真金"。
 
+> 📉 **[66 轮进化研究报告](docs/RESEARCH-REPORT-66iter.md)** — 从分钟级血亏到逼近打平，精确定位市场效率/费用墙的完整证据链（[可视化 HTML 版](docs/RESEARCH-REPORT-66iter.html)）
 > 治理文件：`.specify/memory/constitution.md`（项目宪法 v1.0.0，4 条不可协商原则）
 > 完整规格：`specs/001-crypto-quant-trading/`（Spec Kit 全流程：constitution→spec→plan→tasks→analyze）
 > 阶段评估：`docs/ASSESSMENT-*.md` · 每轮循环报告在 `data/loop_reports/`（本地）
