@@ -483,11 +483,15 @@ tr:last-child td{border-bottom:none}
 <div class=bar id=meta></div>
 
 <!-- ★ 进行中的交易：最想看的，置于最顶 -->
-<h2 style=margin-top:14px>🔴 进行中的交易 · 实时浮动盈亏<span id=opencount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></h2>
-<div class="trades nowrap big-block" id=opentrades></div>
+<!-- 总盘资金：概要，点击展开（最顶） -->
+<div id=totalbox style=margin-top:14px></div>
 
-<!-- 总盘资金：概要，点击展开 -->
-<div id=totalbox style=margin-top:16px></div>
+<!-- Agent 认知层观点 -->
+<div id=agentbox style=margin-top:16px></div>
+
+<!-- ★ 进行中的交易：实时浮动盈亏，大块 -->
+<h2 style=margin-top:20px>🔴 进行中的交易 · 实时浮动盈亏<span id=opencount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></h2>
+<div class="trades nowrap big-block" id=opentrades></div>
 
 <!-- 策略排行榜：全宽，12列排得开不裁切 -->
 <h2>各策略汇总 · 按扣费净利排序</h2>
@@ -497,9 +501,6 @@ tr:last-child td{border-bottom:none}
   <th>毛利$</th><th>手续费$</th><th>净利$</th><th>夏普</th><th>回撤$</th><th>净值曲线</th><th>开关</th>
   </tr></thead><tbody id=rows><tr><td colspan=12 class=mut style=text-align:center;padding:24px>加载中…</td></tr></tbody></table>
 </div>
-
-<!-- Agent 观点 -->
-<div id=agentbox style=margin-top:16px></div>
 
 <!-- 成交明细：全宽 -->
 <h2>成交明细 · 买卖价 / 获利<span id=tradecount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></h2>
