@@ -348,6 +348,12 @@ def make_strategies():
         Strategy("均值回归·maker", "meanrev1h", "mom", 0.5, 0.008, 7200,
                  cooldown=300, sl_pct=0.003, author="agent",
                  trail_arm=0.0025, trail_frac=0.4, fee_pct=0.0004),  # maker往返0.04%
+        # ---- 迭代68（用户指出盈亏不对称）：损失端收紧止损被否(会误杀26-50%赢单，均值回归买跌)。----
+        # 转攻盈利端：trail仅落袋峰值30%(net)。提高捕获——锁定峰值75%(frac0.25)而非60%。
+        # 单变量对照均值回归·maker(仅trail_frac 0.4→0.25)，检验高捕获能否改善不对称并推正净值。
+        Strategy("均值回归·高捕获", "meanrev1h", "mom", 0.5, 0.008, 7200,
+                 cooldown=300, sl_pct=0.003, author="agent",
+                 trail_arm=0.0025, trail_frac=0.25, fee_pct=0.0004),  # 锁定峰值75%+maker
     ]
 
 
