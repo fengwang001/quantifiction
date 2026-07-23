@@ -19,6 +19,19 @@ from fastapi.responses import HTMLResponse, JSONResponse
 STATE = Path(os.getenv("SHADOW_OUT", "data/shadow_state.json"))
 PERSIST = Path(os.getenv("SHADOW_PERSIST", "data/shadow_persist.json"))
 
+# 多标的：按 inst 参数解析对应数据文件（ETH 用默认名，BTC/SOL 加后缀）
+_INSTS = {"ETH": "", "BTC": "_btc", "SOL": "_sol"}
+
+
+def _state_file(inst: str) -> Path:
+    sfx = _INSTS.get((inst or "ETH").upper(), "")
+    return Path(f"data/shadow_state{sfx}.json")
+
+
+def _persist_file(inst: str) -> Path:
+    sfx = _INSTS.get((inst or "ETH").upper(), "")
+    return Path(f"data/shadow_persist{sfx}.json")
+
 app = FastAPI(title="Quantifiction 影子策略对比")
 
 
@@ -137,11 +150,12 @@ def update_strategy(payload: dict) -> JSONResponse:
 
 
 @app.get("/api/strategy/detail")
-def strategy_detail(name: str) -> JSONResponse:
+def strategy_detail(name: str, inst: str = "ETH") -> JSONResponse:
     """单策略详情：全部成交（含买卖价/时间/MFE）+ 按平仓时间重建的净值时间线。"""
-    if not PERSIST.exists():
+    pf = _persist_file(inst)
+    if not pf.exists():
         return JSONResponse({"ok": False})
-    data = json.loads(PERSIST.read_text(encoding="utf-8"))
+    data = json.loads(pf.read_text(encoding="utf-8"))
     st = next((x for x in data.get("strategies", []) if x["name"] == name), None)
     if st is None:
         return JSONResponse({"ok": False})
@@ -201,11 +215,12 @@ def strategy_detail(name: str) -> JSONResponse:
 
 
 @app.get("/api/trades")
-def trades_page(offset: int = 0, limit: int = 50) -> JSONResponse:
-    """分页返回全部成交（下滑加载更多）。从持久化文件读，按时间倒序。"""
-    if not PERSIST.exists():
+def trades_page(offset: int = 0, limit: int = 50, inst: str = "ETH") -> JSONResponse:
+    """分页返回全部成交（下滑加载更多）。按 inst 标的读对应持久化，按时间倒序。"""
+    pf = _persist_file(inst)
+    if not pf.exists():
         return JSONResponse({"trades": [], "total": 0})
-    data = json.loads(PERSIST.read_text(encoding="utf-8"))
+    data = json.loads(pf.read_text(encoding="utf-8"))
     allt = []
     for s in data.get("strategies", []):
         for t in s.get("trades", []):
@@ -301,13 +316,15 @@ def _total_portfolio() -> dict:
 
 
 @app.get("/api/shadow")
-def shadow() -> JSONResponse:
-    if not STATE.exists():
+def shadow(inst: str = "ETH") -> JSONResponse:
+    sf = _state_file(inst)
+    if not sf.exists():
         return JSONResponse({"ready": False})
-    data = json.loads(STATE.read_text(encoding="utf-8"))
+    data = json.loads(sf.read_text(encoding="utf-8"))
     data["ready"] = True
+    data["inst_view"] = (inst or "ETH").upper()
     try:
-        data["total"] = _total_portfolio()
+        data["total"] = _total_portfolio()   # 总盘始终三标的汇总
     except Exception:  # noqa: BLE001
         data["total"] = None
     # 频率显示以覆盖文件为准（点完按钮立即反映，不等 agent 下一轮写盘）
@@ -452,6 +469,12 @@ tr:last-child td{border-bottom:none}
 .btn-mgmt{background:var(--card2);border:1px solid var(--bd2);color:var(--fg);
   border-radius:8px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:500;transition:all .12s}
 .btn-mgmt:hover{border-color:var(--brass);color:var(--brass)}
+/* 标的切换 */
+.instsel{display:inline-flex;gap:0;background:var(--card2);border:1px solid var(--bd2);
+  border-radius:9px;padding:3px;margin-left:6px}
+.instsel .freq{margin:0;border:none;background:transparent;padding:5px 14px;border-radius:6px;font-weight:600}
+.instsel .freq:hover{color:var(--brass);border:none}
+.instsel .inston{background:var(--brass);color:#12161d}
 
 /* ---- KPI 指标格(总盘) ---- */
 .kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;
@@ -474,6 +497,11 @@ tr:last-child td{border-bottom:none}
 <div class=appbar><div class=appbar-in>
   <div class=brand><span class=logo>Q</span><span>Quantifiction<br><small>影子多策略量化终端</small></span></div>
   <div class=sub id=stat><span class=dot></span>等待影子引擎…</div>
+  <div class=instsel id=instsel>
+    <button class="freq inston" data-i=ETH onclick=switchInst('ETH')>ETH</button>
+    <button class=freq data-i=BTC onclick=switchInst('BTC')>BTC</button>
+    <button class=freq data-i=SOL onclick=switchInst('SOL')>SOL</button>
+  </div>
   <div class=spacer></div>
   <span class=mut style=font-size:12px>欧易模拟盘 · 零真金 · 扣真实手续费</span>
   <button class=btn-mgmt onclick=openMgmt()>⚙ 策略管理</button>
@@ -564,7 +592,7 @@ function bigChart(pts){
 let MGDATA={};
 function closeMgmt(){$('mgmt').style.display='none'}
 async function openMgmt(){
-  const d=await(await fetch('/api/shadow')).json();
+  const d=await(await fetch('/api/shadow?inst='+curInst)).json();
   const sel=$('mgsel'); sel.innerHTML=(d.strategies||[]).map(x=>`<option>${x.name}</option>`).join('');
   $('mgmt').style.display='flex'; loadMg();
 }
@@ -574,7 +602,7 @@ const MGFIELDS=[
  ['max_hold','最大持仓','分钟',1/60],['cooldown','冷却','秒',1],['min_range','体制过滤(可空)','%',100]];
 async function loadMg(){
   const name=$('mgsel').value;
-  const d=await(await fetch('/api/strategy/detail?name='+encodeURIComponent(name))).json();
+  const d=await(await fetch('/api/strategy/detail?name='+encodeURIComponent(name)+'&inst='+curInst)).json();
   MGDATA=d; const df=d.definition||{}; const trail=df.trail||[null,null];
   const cur={entry_th:df.entry_th,tp_pct:df.tp_pct,sl_pct:df.sl_pct??null,
              trail_arm:trail[0],trail_gap:trail[1],max_hold:df.max_hold,
@@ -628,7 +656,7 @@ function defHtml(d){
 }
 async function openDetail(name){
   try{
-    const d=await(await fetch('/api/strategy/detail?name='+encodeURIComponent(name))).json();
+    const d=await(await fetch('/api/strategy/detail?name='+encodeURIComponent(name)+'&inst='+curInst)).json();
     if(!d.ok)return;
     $('mtitle').textContent=d.name;
     $('mstats').textContent=`${d.n} 笔 · ${d.wins} 胜(${d.n?f(d.wins/d.n*100,0):0}%) · 累计净值 ${sg(d.net)} USDT`;
@@ -699,7 +727,7 @@ async function loadMoreTrades(){
   if(tradeLoading)return;if(tradeBuilt&&tradeOffset>0&&tradeOffset>=tradeTotal){$('tradeend').textContent='— 已全部加载 —';return;}
   tradeLoading=true;
   try{
-    const r=await(await fetch(`/api/trades?offset=${tradeOffset}&limit=50`)).json();
+    const r=await(await fetch(`/api/trades?offset=${tradeOffset}&limit=50&inst=${curInst}`)).json();
     const tb=$('tradebody');if(!tb){tradeLoading=false;return;}
     if(tradeOffset===0&&!r.trades.length){tb.innerHTML='<tr><td colspan=12 class=mut style=text-align:center;padding:20px>暂无成交（策略等待信号触发）</td></tr>';}
     else tb.insertAdjacentHTML('beforeend',r.trades.map(tradeRow).join(''));
@@ -712,9 +740,13 @@ function resetTrades(){tradeOffset=0;const tb=$('tradebody');if(tb)tb.innerHTML=
 
 let totalExp=false;
 function toggleTotal(){totalExp=!totalExp;tick();}
+let curInst='ETH';
+function switchInst(i){curInst=i;
+  document.querySelectorAll('#instsel .freq').forEach(b=>b.classList.toggle('inston',b.dataset.i===i));
+  resetTrades();tick();}
 async function tick(){
  try{
-  const d=await(await fetch('/api/shadow')).json();
+  const d=await(await fetch('/api/shadow?inst='+curInst)).json();
   if(!d.ready){$('stat').innerHTML='<span class=dot></span>影子引擎未就绪';return;}
   $('stat').innerHTML='<span class=dot></span>实时';document.querySelector('.sub').classList.remove('stale');
   {const ag=Math.round((Date.now()-d.ts)/1000);
