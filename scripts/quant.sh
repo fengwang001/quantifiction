@@ -53,6 +53,7 @@ INSTRUMENTS="BTC-USDT-SWAP SOL-USDT-SWAP"
 svc_args() {
   case "$1" in
     engine|engine-*) echo "-m quant.research.shadow_engine" ;;
+    carry)  echo "-m quant.research.carry_engine" ;;
     agent)  echo "-m quant.cognitive.agent_runner" ;;
     web)    echo "-m uvicorn quant.webui.live_dashboard:app --host 127.0.0.1 --port 8000 --log-level warning" ;;
     *) echo "" ;;
@@ -77,7 +78,7 @@ ALL="engine"
 for inst in $INSTRUMENTS; do
   ALL="$ALL engine-$(echo "${inst%%-*}" | tr '[:upper:]' '[:lower:]')"
 done
-ALL="$ALL agent web"
+ALL="$ALL carry agent web"
 
 # --- WS 实时环境（可选）---
 apply_ws_env() {

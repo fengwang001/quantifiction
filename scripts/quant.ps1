@@ -45,6 +45,7 @@ $Services = @{
   engine = @("-m","quant.research.shadow_engine")
   agent  = @("-m","quant.cognitive.agent_runner")
   web    = @("-m","uvicorn","quant.webui.live_dashboard:app","--host","127.0.0.1","--port","8000","--log-level","warning")
+  carry  = @("-m","quant.research.carry_engine")   # 资金费carry(迭代65 pivot：结构性edge)
 }
 # 每服务的额外环境变量（多标的并行引擎用；迭代47）
 $ServiceEnv = @{}
@@ -62,7 +63,7 @@ foreach ($inst in $Instruments) {
     SHADOW_OUT     = "data\shadow_state_$sym.json"
   }
 }
-$All = @("engine") + ($Instruments | ForEach-Object { "engine-" + ($_ -split "-")[0].ToLower() }) + @("agent","web")
+$All = @("engine") + ($Instruments | ForEach-Object { "engine-" + ($_ -split "-")[0].ToLower() }) + @("carry","agent","web")
 
 function Apply-WsEnv([bool]$Direct) {
   $env:OKX_BASE_URL = "https://www.okx.com"
