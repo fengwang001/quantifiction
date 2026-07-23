@@ -269,8 +269,13 @@ class AgentStrategy(Strategy):
         self.prev_dir = cur_dir
 
 
+# 按标的波动率缩放价格类参数（迭代76：各市场单独配置，非通用）
+# 实测近6h波幅 ETH0.92% / BTC0.80% / SOL1.21%。SOL波幅1.3x需更宽止损才不被打穿。
+_INST_VOL_SCALE = {"ETH-USDT-SWAP": 1.0, "BTC-USDT-SWAP": 0.85, "SOL-USDT-SWAP": 1.3}
+
+
 def make_strategies():
-    return [
+    strats = [
         Strategy("OBI动量", "obi", "mom", 0.35, 0.0025, 180),
         Strategy("OBI动量·宽止盈", "obi", "mom", 0.35, 0.006, 300),
         Strategy("OBI反转", "obi", "rev", 0.55, 0.0025, 120),
@@ -355,6 +360,16 @@ def make_strategies():
                  cooldown=300, sl_pct=0.003, author="agent",
                  trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032),  # 锁定峰值75%+maker(OKB抵扣0.032%)
     ]
+    # 按当前标的波动率缩放"价格距离"类参数（止损/止盈/追踪武装/固定回撤），
+    # 使同一策略在各市场都有波动率适配的空间。信号阈值/比例/费率不缩放。
+    vs = _INST_VOL_SCALE.get(INST, 1.0)
+    if vs != 1.0:
+        for s in strats:
+            for attr in ("sl_pct", "tp_pct", "trail_arm", "trail_gap"):
+                v = getattr(s, attr)
+                if v is not None:
+                    setattr(s, attr, round(v * vs, 6))
+    return strats
 
 
 def _record_tick(book, feat, trades_summary: float) -> None:
