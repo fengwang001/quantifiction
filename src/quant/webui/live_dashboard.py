@@ -369,6 +369,23 @@ body{background:
   align-items:center;padding:2px 0}
 .bar b{color:var(--fg);font-family:var(--mono);font-weight:600}
 
+/* ---- 仪表盘网格：各版块一屏并排，内部滚动，不整页下滑 ---- */
+.dash{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;align-items:start;margin-top:6px}
+@media (max-width:960px){.dash{grid-template-columns:1fr}}
+.side{display:flex;flex-direction:column;gap:2px;min-width:0}
+.panel-main{min-width:0}
+.dash section{min-width:0}
+.dash h2{margin:18px 0 9px}
+.dash section:first-child h2,.panel-main h2{margin-top:2px}
+/* 面板内滚动：表格封顶高度，内部滚，表头吸顶 */
+.scrolly{max-height:520px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+.scrolly-sm{max-height:230px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+.scrolly table,#alltrades table{border:none;border-radius:0}
+.scrolly thead th,#alltrades thead th{position:sticky;top:0;z-index:2}
+#alltrades{max-height:300px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+.scrolly::-webkit-scrollbar,.scrolly-sm::-webkit-scrollbar{width:9px;height:9px}
+.scrolly::-webkit-scrollbar-thumb,.scrolly-sm::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:5px}
+
 /* ---- 卡片系统 ---- */
 .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;
   padding:18px 20px;margin-bottom:16px}
@@ -448,21 +465,32 @@ tr:last-child td{border-bottom:none}
 <div class=wrap>
 <div class=bar id=meta></div>
 
-<div id=totalbox style=margin-top:16px></div>
+<div id=totalbox style=margin-top:14px></div>
 
-<div id=agentbox></div>
-
-<h2>进行中的交易 · 实时浮动盈亏</h2>
-<div class=trades id=opentrades></div>
-
-<h2>各策略汇总 · 按扣费净利排序</h2>
-<table id=tbl><thead><tr>
-<th>策略</th><th>信号/模式</th><th>止盈%</th><th>笔数</th><th>胜率</th>
-<th>毛利$</th><th>手续费$</th><th>净利$</th><th>夏普</th><th>最大回撤$</th><th>净值曲线</th><th>开关</th>
-</tr></thead><tbody id=rows><tr><td colspan=12 class=mut style=text-align:center;padding:24px>加载中…</td></tr></tbody></table>
-
-<h2>成交明细（全部 · 买入价 / 卖出价 / 获利 USDT）<span id=tradecount class=mut></span></h2>
-<div class=trades id=alltrades style="max-height:440px;overflow-y:auto;border:1px solid var(--bd);border-radius:10px"></div>
+<div class=dash>
+  <!-- 左列：策略排行榜（主） -->
+  <section class=panel-main>
+    <h2>各策略汇总 · 按扣费净利排序</h2>
+    <div class=scrolly>
+      <table id=tbl><thead><tr>
+      <th>策略</th><th>信号/模式</th><th>止盈%</th><th>笔数</th><th>胜率</th>
+      <th>毛利$</th><th>手续费$</th><th>净利$</th><th>夏普</th><th>回撤$</th><th>净值曲线</th><th>开关</th>
+      </tr></thead><tbody id=rows><tr><td colspan=12 class=mut style=text-align:center;padding:24px>加载中…</td></tr></tbody></table>
+    </div>
+  </section>
+  <!-- 右列：Agent + 持仓 + 成交明细 -->
+  <div class=side>
+    <div id=agentbox></div>
+    <section>
+      <h2>进行中的交易 · 实时浮动盈亏</h2>
+      <div class="trades scrolly-sm" id=opentrades></div>
+    </section>
+    <section>
+      <h2>成交明细 · 买卖价/获利<span id=tradecount class=mut style=text-transform:none;letter-spacing:0></span></h2>
+      <div class=trades id=alltrades></div>
+    </section>
+  </div>
+</div>
 
 <div class=note id=verdict></div>
 </div><!-- /.wrap -->
