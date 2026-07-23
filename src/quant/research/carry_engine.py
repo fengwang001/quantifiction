@@ -26,8 +26,11 @@ FUNDING_INTERVAL_H = 8.0         # OKX 永续 8h 结算一次
 CARRY_ROUNDTRIP_FEE_PCT = 0.0008
 # 入场门槛：单期资金费率绝对值≥此值才值得持仓（年化≈ 阈值×3×365）
 # 0.005%/8h ≈ 年化5.5%，需持约10期(3.3天)才够覆盖0.08%费用
-ENTER_ABS = float(os.environ.get("CARRY_ENTER", "0.00005"))   # 0.005%/8h
-EXIT_ABS = float(os.environ.get("CARRY_EXIT", "0.00002"))     # 费率弱于0.002%/8h离场
+# 迭代92：首仓验证0.005%阈值太低——3.5h只收+0.0021却付费0.08，亏0.078。
+# 提高到0.02%/8h：只在费率够高、持仓能收够钱覆盖两腿费(0.08%)时才开仓。
+# 0.02%/8h 持约4期(32h)可收0.08%覆盖费用；实盘carry只在极端费率regime有利。
+ENTER_ABS = float(os.environ.get("CARRY_ENTER", "0.0002"))    # 0.02%/8h（迭代92提高4倍）
+EXIT_ABS = float(os.environ.get("CARRY_EXIT", "0.00005"))     # 费率弱于0.005%/8h离场（同步提高）
 PERSIST = Path(os.environ.get("CARRY_PERSIST", "data/carry_persist.json"))
 STATE = Path(os.environ.get("CARRY_STATE", "data/carry_state.json"))
 
