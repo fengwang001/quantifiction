@@ -440,12 +440,20 @@ def _apply_overrides(strategies) -> None:
 
 
 def _read_switches() -> dict:
-    if SWITCH.exists():
-        try:
-            return json.loads(SWITCH.read_text(encoding="utf-8"))
-        except Exception:  # noqa: BLE001
-            return {}
-    return {}
+    """双层开关（迭代78）：全局 strategy_switch.json + 按标的 strategy_switch_<sym>.json，
+    取"与"——任一为 False 即停。全局停=所有标的停；面板停=只停当前标的。"""
+    def _load(p: Path) -> dict:
+        if p.exists():
+            try:
+                return json.loads(p.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                return {}
+        return {}
+    g = _load(SWITCH)
+    sym = INST.split("-")[0].lower()
+    pi = _load(Path(f"data/strategy_switch_{sym}.json"))
+    names = set(g) | set(pi)
+    return {n: (g.get(n, True) and pi.get(n, True)) for n in names}
 
 
 def _read_agent_stance():

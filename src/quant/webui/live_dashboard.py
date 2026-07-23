@@ -60,19 +60,31 @@ def agent_run_now() -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
+def _switch_path(inst: str, glob: bool) -> Path:
+    """glob=True→全局 strategy_switch.json；否则按标的 strategy_switch_<sym>.json。"""
+    if glob:
+        return SWITCH
+    sym = _INSTS.get((inst or "ETH").upper(), "").lstrip("_") or "eth"
+    return Path(f"data/strategy_switch_{sym}.json")
+
+
 @app.post("/api/strategy/toggle")
-def toggle_strategy(name: str, on: bool) -> JSONResponse:
-    """策略开关：off=只出不进（持仓自然走完出场），数据全保留。引擎每tick热读。"""
+def toggle_strategy(name: str, on: bool, inst: str = "ETH",
+                    scope: str = "inst") -> JSONResponse:
+    """策略开关：off=只出不进（持仓走完），数据全保留。引擎每tick热读。
+    scope=inst→只停当前标的(面板按钮)；scope=global→所有标的(策略管理)。"""
+    p = _switch_path(inst, scope == "global")
     sw = {}
-    if SWITCH.exists():
+    if p.exists():
         try:
-            sw = json.loads(SWITCH.read_text(encoding="utf-8"))
+            sw = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             sw = {}
     sw[name] = bool(on)
-    SWITCH.parent.mkdir(parents=True, exist_ok=True)
-    SWITCH.write_text(json.dumps(sw, ensure_ascii=False), encoding="utf-8")
-    return JSONResponse({"ok": True, "name": name, "enabled": bool(on)})
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(sw, ensure_ascii=False), encoding="utf-8")
+    return JSONResponse({"ok": True, "name": name, "enabled": bool(on),
+                         "scope": scope, "inst": (inst or "ETH").upper()})
 
 
 OVERRIDES = Path("data/strategy_overrides.json")
@@ -522,7 +534,7 @@ tr:last-child td{border-bottom:none}
 <div class="trades nowrap big-block" id=opentrades></div>
 
 <!-- 策略排行榜：全宽，12列排得开不裁切 -->
-<h2>各策略汇总 · 按扣费净利排序</h2>
+<h2>各策略汇总 · <span id=leadinst class=warnc style=text-transform:none;letter-spacing:0>ETH</span> · 按扣费净利排序<span class=mut style=text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px>（此处停用只停当前标的）</span></h2>
 <div class="scrolly" id=leadwrap>
   <table id=tbl><thead><tr>
   <th>策略</th><th>信号/模式</th><th>止盈%</th><th>笔数</th><th>胜率</th>
@@ -613,7 +625,12 @@ async function loadMg(){
       return `<label style=font-size:12px class=mut>${lab}<br><input id=mg_${k} value="${shown}" placeholder=${v==null?'空':''} style="width:100%;background:#0d1117;color:var(--fg);border:1px solid var(--bd);border-radius:6px;padding:5px 8px;margin-top:2px">${unit?'<span style=margin-left:4px>'+unit+'</span>':''}</label>`;
     }).join('')+'</div>'+
     `<div style=margin-top:12px><button class=freq style="background:#238636;border-color:#238636;color:#fff;padding:6px 16px" onclick=saveMg()>保存修改</button>
-     <span class=mut style=font-size:11px;margin-left:10px>来源：${d.author==='agent'?'🤖 Agent生成':'👤 人工基线'} · 当前版本 <code>${(d.versions&&d.versions.length)?d.versions[d.versions.length-1].version_id:'—'}</code></span></div>`;
+     <span class=mut style=font-size:11px;margin-left:10px>来源：${d.author==='agent'?'🤖 Agent生成':'👤 人工基线'} · 当前版本 <code>${(d.versions&&d.versions.length)?d.versions[d.versions.length-1].version_id:'—'}</code></span></div>`+
+    `<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--bd)">
+       <div class=mut style=font-size:12px;margin-bottom:6px>🌐 全局开关（对 <b>所有标的 ETH·BTC·SOL</b> 生效；面板里的按钮只停当前标的）</div>
+       <button class=freq style="border-color:#7d3232" onclick="toggleGlobal('${name}',false)">全局停用</button>
+       <button class=freq style="border-color:#238636" onclick="toggleGlobal('${name}',true)">全局启用</button>
+       <span id=mgglob class=mut style=font-size:11px;margin-left:8px></span></div>`;
   $('mgmsg').textContent='';
 }
 async function saveMg(){
@@ -668,7 +685,13 @@ async function openDetail(name){
   }catch(e){}
 }
 async function toggleStrat(name,on){
-  try{await fetch('/api/strategy/toggle?name='+encodeURIComponent(name)+'&on='+on,{method:'POST'});}catch(e){}
+  // 面板按钮：只停当前标的(scope=inst)
+  try{await fetch('/api/strategy/toggle?name='+encodeURIComponent(name)+'&on='+on+'&inst='+curInst+'&scope=inst',{method:'POST'});tick();}catch(e){}
+}
+async function toggleGlobal(name,on){
+  // 策略管理：全局停(所有标的)
+  try{await fetch('/api/strategy/toggle?name='+encodeURIComponent(name)+'&on='+on+'&scope=global',{method:'POST'});
+    const e=$('mgglob');if(e)e.textContent=on?'✓ 已全局启用（所有标的）':'✓ 已全局停用（ETH·BTC·SOL 都停）';}catch(e){}
 }
 async function runNow(){
   try{await fetch('/api/agent/run-now',{method:'POST'});
@@ -743,6 +766,7 @@ function toggleTotal(){totalExp=!totalExp;tick();}
 let curInst='ETH';
 function switchInst(i){curInst=i;
   document.querySelectorAll('#instsel .freq').forEach(b=>b.classList.toggle('inston',b.dataset.i===i));
+  const li=$('leadinst');if(li)li.textContent=i;
   resetTrades();tick();}
 async function tick(){
  try{
