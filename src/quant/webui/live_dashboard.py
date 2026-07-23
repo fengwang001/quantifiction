@@ -378,10 +378,25 @@ body{background:
 .dash section h2{margin:2px 0 9px}
 /* 面板内滚动：表格封顶高度，内部滚，表头吸顶 */
 .scrolly{max-height:400px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
-#opentrades{flex:1;max-height:400px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
-.scrolly table,#alltrades table,#opentrades table{border:none;border-radius:0}
-.scrolly thead th,#alltrades thead th,#opentrades thead th{position:sticky;top:0;z-index:2}
+.scrolly table,#alltrades table{border:none;border-radius:0}
+.scrolly thead th,#alltrades thead th{position:sticky;top:0;z-index:2}
 #alltrades{max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+/* ★ 进行中交易大块：突出、加高、绿色左脉冲 */
+.big-block{max-height:560px;overflow:auto;border:1px solid var(--bd2);border-radius:14px;
+  box-shadow:0 0 0 1px rgba(63,185,138,.12),0 8px 30px rgba(0,0,0,.25)}
+.big-block table{border:none;border-radius:0}
+.big-block thead th{position:sticky;top:0;z-index:2;background:var(--bg2);
+  font-size:11.5px;padding:12px 12px}
+.big-block td{padding:12px 12px;font-size:13.5px}
+.big-block tbody tr:hover{background:var(--card2)}
+/* 折叠总盘 */
+.tcollapse{display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.tcollapse .cap{font-size:26px;font-weight:700;font-family:var(--mono);letter-spacing:-.01em}
+.tmini{color:var(--mut);font-size:13px}
+.tmini b{font-family:var(--mono)}
+.texpand{margin-left:auto;background:var(--card2);border:1px solid var(--bd2);color:var(--mut);
+  border-radius:8px;padding:6px 13px;cursor:pointer;font-size:12px;transition:all .12s}
+.texpand:hover{border-color:var(--brass);color:var(--brass)}
 .nowrap th,.nowrap td{white-space:nowrap}
 ::-webkit-scrollbar{width:9px;height:9px}
 ::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:5px}
@@ -469,6 +484,10 @@ tr:last-child td{border-bottom:none}
 
 <div id=totalbox style=margin-top:14px></div>
 
+<!-- ★ 进行中的交易：最想看的，大块置顶 -->
+<h2 style=margin-top:22px>🔴 进行中的交易 · 实时浮动盈亏<span id=opencount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></h2>
+<div class="trades nowrap big-block" id=opentrades></div>
+
 <!-- 策略排行榜：全宽，12列排得开不裁切 -->
 <h2>各策略汇总 · 按扣费净利排序</h2>
 <div class="scrolly" id=leadwrap>
@@ -478,14 +497,8 @@ tr:last-child td{border-bottom:none}
   </tr></thead><tbody id=rows><tr><td colspan=12 class=mut style=text-align:center;padding:24px>加载中…</td></tr></tbody></table>
 </div>
 
-<!-- Agent 观点 + 进行中交易 并排 -->
-<div class=dash>
-  <div id=agentbox></div>
-  <section>
-    <h2>进行中的交易 · 实时浮动盈亏</h2>
-    <div class="trades nowrap" id=opentrades></div>
-  </section>
-</div>
+<!-- Agent 观点 -->
+<div id=agentbox style=margin-top:16px></div>
 
 <!-- 成交明细：全宽 -->
 <h2>成交明细 · 买卖价 / 获利<span id=tradecount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></h2>
@@ -695,6 +708,8 @@ async function loadMoreTrades(){
 }
 function resetTrades(){tradeOffset=0;const tb=$('tradebody');if(tb)tb.innerHTML='';loadMoreTrades();}
 
+let totalExp=false;
+function toggleTotal(){totalExp=!totalExp;tick();}
 async function tick(){
  try{
   const d=await(await fetch('/api/shadow')).json();
@@ -742,23 +757,40 @@ async function tick(){
     const ucls=(T.unrealized_usd||0)>=0?'up':'dn';
     const rcls=(T.realized_usd||0)>=0?'up':'dn';
     const pnlLabel=T.net_usd>=0?'总盈利':'总亏损';
-    $('totalbox').innerHTML=`<div class=card style="border-color:${T.net_usd>=0?'rgba(63,185,138,.4)':'rgba(224,105,90,.4)'}">
-      <div class=row style="margin:0 0 14px;flex-wrap:wrap;gap:8px">
-        <b style=font-size:15px>💰 总盘资金情况</b>
-        <span style=margin-left:auto;font-size:11px;font-weight:600 class="${T.stale?'dn':'up'}">${T.stale?'⚠ 部分快照 >30s':'● 实时行情'}</span>
-      </div>
-      <div style=color:var(--mut);font-size:12px;margin:-6px 0 12px>全 ${T.instruments} 标的(ETH·BTC·SOL) · ${T.strat||'?'} 策略 · 每策略名义 $${d.notional} · 已实现 + 浮动(按现价实时) · 扣真实手续费</div>
-      <div class=kpi>
-        <div><div class=lab>起始资金</div><div class=v>$${f(T.start_capital,2)}</div></div>
-        <div><div class=lab>当前资金 · 含浮动</div><div class="v ${cls}">$${f(T.current_capital,2)}</div></div>
-        <div><div class=lab>${pnlLabel}</div><div class="v ${cls}">${T.net_usd>=0?'+':''}${f(T.net_usd,2)}</div><div class="s ${cls}">${T.return_pct>=0?'+':''}${f(T.return_pct,2)}%</div></div>
-        <div><div class=lab>已实现盈亏</div><div class="v ${rcls}">${(T.realized_usd||0)>=0?'+':''}${f(T.realized_usd,2)}</div><div class=s>${T.trades} 笔平仓</div></div>
-        <div><div class=lab>浮动盈亏 · 实时</div><div class="v ${ucls}">${(T.unrealized_usd||0)>=0?'+':''}${f(T.unrealized_usd,3)}</div><div class=s>${T.open_positions} 个持仓</div></div>
-        <div><div class=lab>胜率 · 回撤</div><div class=v>${T.win_rate}%</div><div class="s dn">回撤 ${f(T.max_dd_pct,2)}%</div></div>
-      </div>
-      <div style=margin-top:16px;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em>资金变化曲线 · 已实现累计</div>
-      <div style=margin-top:6px>${bigCurve(T.curve)}</div>
-    </div>`;
+    const bd=T.net_usd>=0?'rgba(63,185,138,.4)':'rgba(224,105,90,.4)';
+    if(!totalExp){
+      // 折叠：只看总体
+      $('totalbox').innerHTML=`<div class=card style="border-color:${bd}">
+        <div class=tcollapse>
+          <b style=font-size:15px>💰 总盘资金</b>
+          <div><span class=tmini>当前资金</span> <span class="cap ${cls}">$${f(T.current_capital,2)}</span></div>
+          <div class=tmini>${pnlLabel} <b class="${cls}">${T.net_usd>=0?'+':''}${f(T.net_usd,2)}</b> <span class="${cls}">(${T.return_pct>=0?'+':''}${f(T.return_pct,2)}%)</span></div>
+          <div class=tmini>浮动 <b class="${ucls}">${(T.unrealized_usd||0)>=0?'+':''}${f(T.unrealized_usd,2)}</b> · ${T.open_positions}仓</div>
+          <span class="${T.stale?'dn':'up'}" style=font-size:11px;font-weight:600>${T.stale?'⚠ >30s':'● 实时'}</span>
+          <button class=texpand onclick=toggleTotal()>展开明细 ▾</button>
+        </div>
+      </div>`;
+    }else{
+      // 展开：完整明细
+      $('totalbox').innerHTML=`<div class=card style="border-color:${bd}">
+        <div class=row style="margin:0 0 14px;flex-wrap:wrap;gap:8px">
+          <b style=font-size:15px>💰 总盘资金情况</b>
+          <span class="${T.stale?'dn':'up'}" style=font-size:11px;font-weight:600>${T.stale?'⚠ 部分快照 >30s':'● 实时行情'}</span>
+          <button class=texpand onclick=toggleTotal()>收起 ▴</button>
+        </div>
+        <div style=color:var(--mut);font-size:12px;margin:-6px 0 12px>全 ${T.instruments} 标的(ETH·BTC·SOL) · ${T.strat||'?'} 策略 · 每策略名义 $${d.notional} · 已实现 + 浮动(按现价实时) · 扣真实手续费</div>
+        <div class=kpi>
+          <div><div class=lab>起始资金</div><div class=v>$${f(T.start_capital,2)}</div></div>
+          <div><div class=lab>当前资金 · 含浮动</div><div class="v ${cls}">$${f(T.current_capital,2)}</div></div>
+          <div><div class=lab>${pnlLabel}</div><div class="v ${cls}">${T.net_usd>=0?'+':''}${f(T.net_usd,2)}</div><div class="s ${cls}">${T.return_pct>=0?'+':''}${f(T.return_pct,2)}%</div></div>
+          <div><div class=lab>已实现盈亏</div><div class="v ${rcls}">${(T.realized_usd||0)>=0?'+':''}${f(T.realized_usd,2)}</div><div class=s>${T.trades} 笔平仓</div></div>
+          <div><div class=lab>浮动盈亏 · 实时</div><div class="v ${ucls}">${(T.unrealized_usd||0)>=0?'+':''}${f(T.unrealized_usd,3)}</div><div class=s>${T.open_positions} 个持仓</div></div>
+          <div><div class=lab>胜率 · 回撤</div><div class=v>${T.win_rate}%</div><div class="s dn">回撤 ${f(T.max_dd_pct,2)}%</div></div>
+        </div>
+        <div style=margin-top:16px;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em>资金变化曲线 · 已实现累计</div>
+        <div style=margin-top:6px>${bigCurve(T.curve)}</div>
+      </div>`;
+    }
   }else{
     $('totalbox').innerHTML='<div class=card style=color:var(--mut)>💰 总盘资金：等待成交数据聚合…</div>';
   }
@@ -766,6 +798,8 @@ async function tick(){
 
   // 进行中的交易（最上面）
   const OT=d.open_trades||[];
+  {const oc=$('opencount');if(oc){const upnl=OT.reduce((a,t)=>a+(t.net_if_close||0),0);
+    oc.innerHTML=OT.length?`　${OT.length} 个持仓 · 合计浮动 <b class="${upnl>=0?'up':'dn'}">${upnl>=0?'+':''}${upnl.toFixed(2)} USDT</b>`:'';}}
   if(OT.length){
     $('opentrades').innerHTML='<table><thead><tr><th>策略</th><th>方向</th><th>开仓时间</th><th>持仓时长</th><th>数量ETH</th><th title=每笔统一名义100USDT便于横向对比>投入USDT</th><th>现在价值USDT</th><th>开仓价</th><th>现价</th><th>浮动%</th><th>浮动毛利USDT</th><th>此刻平仓净USDT</th><th>止盈目标%</th></tr></thead><tbody>'+
     OT.map(t=>`<tr><td class=mut>${t.strategy}</td><td><span class="tag ${t.dir=='多'?'l':'s'}">${t.dir}</span></td><td>${hms(t.open_ms)}</td><td>${dur(t.hold)}</td><td>${t.qty??'—'}</td><td>${f(t.invested??100,0)}</td><td class="${cls((t.cur_value??100)-100)}" style=font-weight:700>${f(t.cur_value??100,3)}</td><td>${f(t.entry)}</td><td>${f(t.cur)}</td><td class=${cls(t.upnl_pct)}>${sg(t.upnl_pct,3)}%</td><td class=${cls(t.gross_usd)}>${sg(t.gross_usd)}</td><td class="${cls(t.net_if_close)}" style=font-weight:700>${sg(t.net_if_close)}</td><td class=mut>+${f(t.tp_target,2)}</td></tr>`).join('')+'</tbody></table>';
