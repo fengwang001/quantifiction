@@ -213,12 +213,61 @@ def trades_page(offset: int = 0, limit: int = 50) -> JSONResponse:
     return JSONResponse({"trades": allt[offset:offset + limit], "total": len(allt)})
 
 
+def _total_portfolio() -> dict:
+    """总盘资金：跨全部持久化文件(ETH/BTC/SOL)聚合所有策略成交，
+    按时间累计成一条组合净值曲线。这是整个影子实验的总资金状况。"""
+    import glob
+    files = ["data/shadow_persist.json"] + glob.glob("data/shadow_persist_*.json")
+    seen = set()
+    allt = []
+    for fp in files:
+        if fp in seen or not Path(fp).exists():
+            continue
+        seen.add(fp)
+        try:
+            d = json.loads(Path(fp).read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        for s in d.get("strategies", []):
+            for t in s.get("trades", []):
+                allt.append((int(t.get("ts", 0)), float(t.get("net_usd", 0.0))))
+    allt.sort(key=lambda x: x[0])
+    # 组合累计净值曲线（下采样到≤400点，避免过大）
+    cum = 0.0
+    curve = []
+    for ts, net in allt:
+        cum += net
+        curve.append([ts, round(cum, 3)])
+    step = max(1, len(curve) // 400)
+    curve_ds = curve[::step]
+    if curve and curve_ds[-1] != curve[-1]:
+        curve_ds.append(curve[-1])
+    wins = sum(1 for _, n in allt if n > 0)
+    peak = 0.0
+    mdd = 0.0
+    for _, v in curve:
+        peak = max(peak, v)
+        mdd = min(mdd, v - peak)
+    return {
+        "net_usd": round(cum, 2),
+        "trades": len(allt),
+        "win_rate": round(wins / len(allt) * 100, 1) if allt else 0.0,
+        "max_dd": round(mdd, 2),
+        "curve": curve_ds,
+        "instruments": len(seen),
+    }
+
+
 @app.get("/api/shadow")
 def shadow() -> JSONResponse:
     if not STATE.exists():
         return JSONResponse({"ready": False})
     data = json.loads(STATE.read_text(encoding="utf-8"))
     data["ready"] = True
+    try:
+        data["total"] = _total_portfolio()
+    except Exception:  # noqa: BLE001
+        data["total"] = None
     # 频率显示以覆盖文件为准（点完按钮立即反映，不等 agent 下一轮写盘）
     if data.get("agent") and AGENT_CFG.exists():
         try:
@@ -278,6 +327,8 @@ h2{font-size:14px;color:var(--mut);margin:18px 0 8px;font-weight:600;max-width:1
 <div class=bar id=meta><button class=freq style=margin-left:auto onclick=openMgmt()>⚙ 策略管理</button></div>
 
 <div id=agentbox style=max-width:1200px;margin-bottom:16px></div>
+
+<div id=totalbox style=max-width:1200px;margin-bottom:16px></div>
 
 <h2 style=margin-top:0>🔴 进行中的交易（实时浮动盈亏）</h2>
 <div class=trades id=opentrades></div>
@@ -452,6 +503,25 @@ function spark(curve){
   const dot=`<circle cx="${X(curve.length-1)}" cy="${Y(last)}" r="2.2" fill="${col}" />`;
   return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${area}${zero}<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.5" />${dot}</svg>`;
 }
+// 总盘组合净值大曲线：curve = [[ts, cum], ...]
+function bigCurve(curve){
+  if(!curve||curve.length<2)return'<span class=mut style=font-size:12px>待成交积累</span>';
+  const vals=curve.map(p=>p[1]),ts=curve.map(p=>p[0]);
+  const w=1160,h=180,padL=8,padR=8,padT=10,padB=22;
+  const min=Math.min(...vals,0),max=Math.max(...vals,0),rng=(max-min)||1;
+  const X=i=>(padL+i/(curve.length-1)*(w-padL-padR)).toFixed(1);
+  const Y=v=>(padT+(max-v)/rng*(h-padT-padB)).toFixed(1);
+  const pts=vals.map((v,i)=>`${X(i)},${Y(v)}`).join(' ');
+  const last=vals[vals.length-1],col=last>=0?'#26a69a':'#ef5350';
+  const zy=Y(0);
+  const zero=`<line x1="${padL}" y1="${zy}" x2="${w-padR}" y2="${zy}" stroke="#3d444d" stroke-width="1" stroke-dasharray="4,4" /><text x="${w-padR}" y="${zy-4}" fill="#8b949e" font-size="10" text-anchor="end">盈亏平衡</text>`;
+  const area=`<polygon points="${X(0)},${zy} ${pts} ${X(curve.length-1)},${zy}" fill="${col}" opacity="0.12" />`;
+  const dot=`<circle cx="${X(curve.length-1)}" cy="${Y(last)}" r="3.2" fill="${col}" /><text x="${X(curve.length-1)}" y="${Math.max(12,Y(last)-8)}" fill="${col}" font-size="12" font-weight="700" text-anchor="end">${last>=0?'+':''}${last.toFixed(2)}</text>`;
+  const t0=new Date(ts[0]),t1=new Date(ts[ts.length-1]);
+  const fmt=d=>`${(d.getMonth()+1)}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  const axis=`<text x="${padL}" y="${h-6}" fill="#8b949e" font-size="10">${fmt(t0)}</text><text x="${w-padR}" y="${h-6}" fill="#8b949e" font-size="10" text-anchor="end">${fmt(t1)}</text><text x="${padL}" y="14" fill="#8b949e" font-size="10">峰值 ${max.toFixed(1)}</text><text x="${padL}" y="${h-padB+2}" fill="#8b949e" font-size="10">谷值 ${min.toFixed(1)}</text>`;
+  return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block">${area}${zero}<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="2" />${dot}${axis}</svg>`;
+}
 // ---- 成交明细：分页 + 下滑加载更多 ----
 let tradeOffset=0,tradeTotal=0,lastTotal=0,tradeBuilt=false,tradeLoading=false;
 function tradeRow(t){return `<tr><td class=mut>${t.strategy||''}</td><td><span class="tag ${t.dir=='多'?'l':'s'}">${t.dir}</span></td><td>${hms(t.buy_ms)}</td><td>${hms(t.sell_ms)}</td><td>${dur(t.hold)}</td><td>${f(t.buy_px)}</td><td>${f(t.sell_px)}</td><td class=mut>${sg(t.gross_usd)}</td><td class=dn>-${f(t.fee_usd,3)}</td><td class="${cls(t.net_usd)}" style=font-weight:700>${sg(t.net_usd)}</td><td class=mut>${t.reason=='tp'?'止盈':t.reason=='sl'?'止损':t.reason=='trail'?'追踪':'超时'}</td></tr>`}
@@ -513,6 +583,23 @@ async function tick(){
     </div>`;
     document.querySelectorAll('.freq').forEach(b=>{if(+b.dataset.s===intv)b.classList.add('freqon')});
   }else $('agentbox').innerHTML='<div class=card style=color:var(--mut)>🤖 Agent 认知层：等待首次辩论（agent_runner 启动后约30秒出观点）…</div>';
+
+  // 总盘资金 + 组合净值曲线
+  const T=d.total;
+  if(T){
+    const cls=T.net_usd>=0?'up':'dn';
+    $('totalbox').innerHTML=`<div class=card style="border-color:${T.net_usd>=0?'#238636':'#7d3232'}">
+      <div class=row style="margin:0;align-items:flex-start">
+        <div><b>💰 总盘资金（全${T.instruments}标的 · 全策略累计）</b>
+          <div class=mut style=font-size:12px;margin-top:2px>影子实验总盈亏 · 起始每策略名义$${d.notional} · 扣真实手续费</div></div>
+        <div style=text-align:right>
+          <div class="big ${cls}" style=font-size:26px>${T.net_usd>=0?'+':''}${f(T.net_usd,2)} <span style=font-size:13px>USDT</span></div>
+          <div class=mut style=font-size:12px>${T.trades}笔 · 胜率${T.win_rate}% · 最大回撤${f(T.max_dd,2)}</div>
+        </div>
+      </div>
+      <div style=margin-top:12px>${bigCurve(T.curve)}</div>
+    </div>`;
+  }
 
   // 进行中的交易（最上面）
   const OT=d.open_trades||[];
