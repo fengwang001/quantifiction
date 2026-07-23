@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -250,15 +251,42 @@ def _total_portfolio() -> dict:
     for _, v in curve:
         peak = max(peak, v)
         mdd = min(mdd, v - peak)
+    realized = cum   # 已平仓累计净盈亏
+
+    # 浮动盈亏：读各标的实时快照的持仓，按当前价 mark-to-market（net_if_close 含平仓费）
+    state_files = ["data/shadow_state.json", "data/shadow_state_btc.json",
+                   "data/shadow_state_sol.json"]
+    unrealized = 0.0
+    n_open = 0
+    stale = False
+    now_ms = time.time() * 1000
+    for sf in state_files:
+        if not Path(sf).exists():
+            continue
+        try:
+            st = json.loads(Path(sf).read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        if now_ms - st.get("ts", 0) > 30000:   # 快照超30s视为陈旧
+            stale = True
+        for ot in st.get("open_trades", []):
+            unrealized += float(ot.get("net_if_close", ot.get("gross_usd", 0.0)))
+            n_open += 1
+
+    total_pnl = realized + unrealized   # 总盈亏 = 已实现 + 浮动
     # 资金账户视角：每策略名义 $100 子账户，总盘起始 = 策略数 × 100
     notional = 100.0
     n_strat = len(strat_names)
     start_cap = n_strat * notional
-    cur_cap = start_cap + cum
-    ret_pct = (cum / start_cap * 100) if start_cap else 0.0
+    cur_cap = start_cap + total_pnl
+    ret_pct = (total_pnl / start_cap * 100) if start_cap else 0.0
     mdd_pct = (mdd / start_cap * 100) if start_cap else 0.0
     return {
-        "net_usd": round(cum, 2),
+        "net_usd": round(total_pnl, 2),          # 总盈亏(含浮动)——曲线/资金以此为准
+        "realized_usd": round(realized, 2),      # 已平仓
+        "unrealized_usd": round(unrealized, 3),  # 浮动(实时随价格变)
+        "open_positions": n_open,
+        "stale": stale,
         "trades": len(allt),
         "win_rate": round(wins / len(allt) * 100, 1) if allt else 0.0,
         "max_dd": round(mdd, 2),
@@ -603,36 +631,40 @@ async function tick(){
   const T=d.total;
   if(T){
     const cls=T.net_usd>=0?'up':'dn';
-    const pnlLabel=T.net_usd>=0?'盈利总额':'亏损总额';
-    const pctLabel=T.return_pct>=0?'盈利百分比':'亏损百分比';
+    const ucls=(T.unrealized_usd||0)>=0?'up':'dn';
+    const pnlLabel=T.net_usd>=0?'总盈利':'总亏损';
+    const pctLabel=T.return_pct>=0?'总盈利%':'总亏损%';
     $('totalbox').innerHTML=`<div class=card style="border-color:${T.net_usd>=0?'#238636':'#7d3232'};background:linear-gradient(180deg,rgba(88,166,255,.05),transparent)">
       <div class=row style="margin:0 0 12px;align-items:center;flex-wrap:wrap;gap:8px">
         <b style=font-size:16px>💰 总盘资金情况</b>
-        <span class=mut style=font-size:12px>全 ${T.instruments} 标的(ETH·BTC·SOL) · ${T.strat||'?'} 策略 · 每策略名义 $${d.notional} · 扣真实手续费</span>
+        <span class=mut style=font-size:12px>全 ${T.instruments} 标的 · ${T.strat||'?'} 策略 · 每策略名义 $${d.notional} · 已实现+浮动(按现价实时) · 扣真实手续费</span>
+        ${T.stale?'<span class=dn style=font-size:11px>⚠ 部分快照>30s</span>':'<span class=up style=font-size:11px>● 实时</span>'}
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
         <div style=background:var(--card);padding:12px 14px>
           <div class=mut style=font-size:11px>起始资金</div>
-          <div style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>$${f(T.start_capital,2)}</div></div>
+          <div style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>$${f(T.start_capital,2)}</div></div>
         <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>当前资金</div>
-          <div class="${cls}" style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>$${f(T.current_capital,2)}</div></div>
+          <div class=mut style=font-size:11px>当前资金(含浮动)</div>
+          <div class="${cls}" style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>$${f(T.current_capital,2)}</div></div>
         <div style=background:var(--card);padding:12px 14px>
           <div class=mut style=font-size:11px>${pnlLabel}</div>
-          <div class="${cls}" style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>${T.net_usd>=0?'+':''}${f(T.net_usd,2)}</div></div>
+          <div class="${cls}" style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>${T.net_usd>=0?'+':''}${f(T.net_usd,2)}</div>
+          <div class=mut style=font-size:10px>${T.return_pct>=0?'+':''}${f(T.return_pct,2)}%</div></div>
         <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>${pctLabel}</div>
-          <div class="${cls}" style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>${T.return_pct>=0?'+':''}${f(T.return_pct,2)}%</div></div>
+          <div class=mut style=font-size:11px>已实现盈亏</div>
+          <div class="${(T.realized_usd||0)>=0?'up':'dn'}" style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>${(T.realized_usd||0)>=0?'+':''}${f(T.realized_usd,2)}</div>
+          <div class=mut style=font-size:10px>${T.trades} 笔平仓</div></div>
         <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>胜率</div>
-          <div style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>${T.win_rate}%</div>
-          <div class=mut style=font-size:10px>${T.trades} 笔</div></div>
+          <div class=mut style=font-size:11px>浮动盈亏(实时)</div>
+          <div class="${ucls}" style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>${(T.unrealized_usd||0)>=0?'+':''}${f(T.unrealized_usd,3)}</div>
+          <div class=mut style=font-size:10px>${T.open_positions} 个持仓</div></div>
         <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>最大回撤</div>
-          <div class=dn style=font-size:22px;font-weight:600;font-variant-numeric:tabular-nums>${f(T.max_dd_pct,2)}%</div>
-          <div class=mut style=font-size:10px>$${f(T.max_dd,2)}</div></div>
+          <div class=mut style=font-size:11px>胜率 / 回撤</div>
+          <div style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>${T.win_rate}%</div>
+          <div class=dn style=font-size:10px>回撤 ${f(T.max_dd_pct,2)}%</div></div>
       </div>
-      <div style=margin-top:14px;font-size:12px;color:var(--mut)>📈 资金变化曲线（按时间累计，绿=盈利区 / 红=亏损区）</div>
+      <div style=margin-top:14px;font-size:12px;color:var(--mut)>📈 资金变化曲线（已实现累计，绿=盈利区 / 红=亏损区）· 浮动盈亏实时叠加于当前资金</div>
       <div style=margin-top:4px>${bigCurve(T.curve)}</div>
     </div>`;
   }else{
