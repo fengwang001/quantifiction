@@ -370,21 +370,25 @@ body{background:
 .bar b{color:var(--fg);font-family:var(--mono);font-weight:600}
 
 /* ---- 仪表盘网格：各版块一屏并排，内部滚动，不整页下滑 ---- */
-.dash{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;align-items:start;margin-top:6px}
+.dash{display:grid;grid-template-columns:1.5fr 1fr;gap:18px;align-items:stretch;margin-top:6px}
 @media (max-width:960px){.dash{grid-template-columns:1fr}}
 .side{display:flex;flex-direction:column;gap:2px;min-width:0}
-.panel-main{min-width:0}
-.dash section{min-width:0}
-.dash h2{margin:18px 0 9px}
-.dash section:first-child h2,.panel-main h2{margin-top:2px}
+.side #agentbox .card{margin-bottom:14px}
+.panel-main{min-width:0;display:flex;flex-direction:column}
+.dash section{min-width:0;display:flex;flex-direction:column}
+.dash h2{margin:16px 0 9px}
+.panel-main>h2,.side section:first-of-type h2,.side>section:first-child h2{margin-top:2px}
+.side .agent-slot h2{margin-top:2px}
 /* 面板内滚动：表格封顶高度，内部滚，表头吸顶 */
-.scrolly{max-height:520px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
-.scrolly-sm{max-height:230px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+.scrolly{flex:1;min-height:220px;max-height:560px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+.scrolly-sm{flex:1;min-height:150px;max-height:100%;overflow:auto;border:1px solid var(--bd);border-radius:12px}
 .scrolly table,#alltrades table{border:none;border-radius:0}
-.scrolly thead th,#alltrades thead th{position:sticky;top:0;z-index:2}
-#alltrades{max-height:300px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
-.scrolly::-webkit-scrollbar,.scrolly-sm::-webkit-scrollbar{width:9px;height:9px}
-.scrolly::-webkit-scrollbar-thumb,.scrolly-sm::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:5px}
+.scrolly thead th,#alltrades thead th,.scrolly-sm thead th{position:sticky;top:0;z-index:2}
+#alltrades{max-height:340px;overflow:auto;border:1px solid var(--bd);border-radius:12px}
+.nowrap th,.nowrap td{white-space:nowrap}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
 
 /* ---- 卡片系统 ---- */
 .card{background:var(--card);border:1px solid var(--bd);border-radius:12px;
@@ -403,10 +407,11 @@ h2::before{content:"";width:3px;height:13px;background:var(--brass);border-radiu
 /* ---- 表格 ---- */
 table{width:100%;border-collapse:collapse;background:var(--card);
   border:1px solid var(--bd);border-radius:12px;overflow:hidden}
-th,td{padding:11px 13px;text-align:right;font-size:13px;border-bottom:1px solid var(--bd)}
-th{color:var(--mut);font-weight:600;background:var(--bg2);font-size:11px;
-  text-transform:uppercase;letter-spacing:.04em}
+th,td{padding:9px 9px;text-align:right;font-size:12.5px;border-bottom:1px solid var(--bd)}
+th{color:var(--mut);font-weight:600;background:var(--bg2);font-size:10.5px;
+  text-transform:uppercase;letter-spacing:.02em}
 td{font-family:var(--mono)}
+#tbl td:first-child{font-size:12px;line-height:1.3}
 td:first-child,th:first-child{text-align:left;font-family:inherit}
 tbody tr{transition:background .12s}
 tbody tr:hover{background:var(--card2)}
@@ -478,19 +483,19 @@ tr:last-child td{border-bottom:none}
       </tr></thead><tbody id=rows><tr><td colspan=12 class=mut style=text-align:center;padding:24px>加载中…</td></tr></tbody></table>
     </div>
   </section>
-  <!-- 右列：Agent + 持仓 + 成交明细 -->
+  <!-- 右列：Agent + 进行中交易 -->
   <div class=side>
     <div id=agentbox></div>
     <section>
       <h2>进行中的交易 · 实时浮动盈亏</h2>
-      <div class="trades scrolly-sm" id=opentrades></div>
-    </section>
-    <section>
-      <h2>成交明细 · 买卖价/获利<span id=tradecount class=mut style=text-transform:none;letter-spacing:0></span></h2>
-      <div class=trades id=alltrades></div>
+      <div class="trades scrolly-sm nowrap" id=opentrades></div>
     </section>
   </div>
 </div>
+
+<!-- 成交明细：全宽独立行，宽表格给足宽度 -->
+<h2>成交明细 · 买卖价 / 获利<span id=tradecount class=mut style=text-transform:none;letter-spacing:0;font-weight:400></span></h2>
+<div class="trades nowrap" id=alltrades></div>
 
 <div class=note id=verdict></div>
 </div><!-- /.wrap -->
