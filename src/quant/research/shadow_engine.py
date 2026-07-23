@@ -532,8 +532,9 @@ def main():
             _record_tick(book, feat, float(cvd(trades)))
             now = time.time()
             switches = _read_switches()
+            drain = bool(os.environ.get("SHADOW_DRAIN"))  # 排空模式：持仓走完，不开新仓（迭代74，聚焦ETH）
             for s_ in strategies:
-                s_.enabled = switches.get(s_.name, True)
+                s_.enabled = False if drain else switches.get(s_.name, True)
             _apply_overrides(strategies)
             # 读 agent 观点，喂给 AgentStrategy（宪法 II：认知层独立进程经文件传递）
             agent_view = _read_agent_stance()
