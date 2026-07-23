@@ -329,53 +329,133 @@ _HTML = """<!doctype html><html lang=zh><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Quantifiction 影子策略对比</title>
 <style>
-:root{--bg:#0d1117;--card:#161b22;--bd:#30363d;--fg:#e6edf3;--mut:#8b949e;
---up:#26a69a;--dn:#ef5350;--acc:#58a6ff;--warn:#d29922}
-*{box-sizing:border-box;margin:0}body{background:var(--bg);color:var(--fg);
-font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;padding:20px}
-h1{font-size:18px}.sub{color:var(--mut);font-size:12px;margin:4px 0 14px}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--up);margin-right:6px}
-.stale .dot{background:var(--dn)}
-.bar{display:flex;gap:16px;flex-wrap:wrap;color:var(--mut);font-size:12px;margin-bottom:14px}
-.bar b{color:var(--fg)}
-table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--bd);border-radius:10px;overflow:hidden;font-variant-numeric:tabular-nums;max-width:1200px}
-th,td{padding:10px 12px;text-align:right;font-size:13px;border-bottom:1px solid var(--bd)}
-th{color:var(--mut);font-weight:500;background:#1c2129}
-th:first-child,td:first-child{text-align:left}tr:last-child td{border-bottom:none}
-.up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}
-.spark{height:28px}
-.rank{color:var(--mut);font-size:11px;margin-right:6px}
-.win{color:var(--warn);font-weight:700}
-.note{max-width:1200px;color:var(--mut);font-size:12px;margin-top:12px;line-height:1.7}
-h2{font-size:14px;color:var(--mut);margin:18px 0 8px;font-weight:600;max-width:1200px}
-.trades{max-width:1200px}
+:root{
+  --bg:#0f141b; --bg2:#0b0f15; --card:#171e27; --card2:#1e2732; --raise:#232d3a;
+  --bd:#28323f; --bd2:#323e4d; --fg:#e9edf2; --mut:#8b96a5; --faint:#5b6675;
+  --brass:#d4a54a; --brass-dim:#9a7c3a;
+  --up:#3fb98a; --dn:#e0695a; --acc:#5b8ff0; --warn:#d8a838;
+  --up-bg:rgba(63,185,138,.13); --dn-bg:rgba(224,105,90,.13);
+  --mono:"SF Mono","JetBrains Mono",ui-monospace,"Cascadia Code",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0}
+body{background:
+  radial-gradient(1200px 500px at 80% -10%,rgba(91,143,240,.06),transparent),
+  var(--bg);color:var(--fg);
+  font:14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased}
+.mono,td,th,.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:1280px;margin:0 auto;padding:0 22px 60px}
+
+/* ---- 顶部应用栏 ---- */
+.appbar{position:sticky;top:0;z-index:40;background:rgba(11,15,21,.82);
+  backdrop-filter:saturate(140%) blur(10px);border-bottom:1px solid var(--bd);
+  margin-bottom:22px}
+.appbar-in{max-width:1280px;margin:0 auto;padding:12px 22px;display:flex;
+  align-items:center;gap:16px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;letter-spacing:-.01em}
+.brand .logo{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--brass),var(--brass-dim));color:#12161d;font-size:15px;font-weight:800}
+.brand small{color:var(--faint);font-weight:500;font-size:11px;letter-spacing:.03em}
+.appbar .sub{color:var(--mut);font-size:12px;margin:0;display:flex;align-items:center;gap:7px}
+.spacer{margin-left:auto}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--up);
+  box-shadow:0 0 0 3px var(--up-bg);animation:pulse 2s infinite}
+.stale .dot,.sub.stale .dot{background:var(--dn);box-shadow:0 0 0 3px var(--dn-bg)}
+@keyframes pulse{50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.dot{animation:none}}
+
+/* ---- 市场行情条 ---- */
+.bar{display:flex;gap:20px;flex-wrap:wrap;color:var(--mut);font-size:12.5px;
+  align-items:center;padding:2px 0}
+.bar b{color:var(--fg);font-family:var(--mono);font-weight:600}
+
+/* ---- 卡片系统 ---- */
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;
+  padding:18px 20px;margin-bottom:16px}
+.card .row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.big{font-weight:700;font-family:var(--mono);letter-spacing:-.01em}
+.up{color:var(--up)}.dn{color:var(--dn)}.mut{color:var(--mut)}.warnc{color:var(--warn)}
+
+/* ---- 区块标题 ---- */
+h1{font-size:18px}
+.sub{color:var(--mut);font-size:12px}
+h2{font-size:12px;color:var(--faint);margin:26px 0 11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:.12em;display:flex;align-items:center;gap:8px}
+h2::before{content:"";width:3px;height:13px;background:var(--brass);border-radius:2px;display:inline-block}
+
+/* ---- 表格 ---- */
+table{width:100%;border-collapse:collapse;background:var(--card);
+  border:1px solid var(--bd);border-radius:12px;overflow:hidden}
+th,td{padding:11px 13px;text-align:right;font-size:13px;border-bottom:1px solid var(--bd)}
+th{color:var(--mut);font-weight:600;background:var(--bg2);font-size:11px;
+  text-transform:uppercase;letter-spacing:.04em}
+td{font-family:var(--mono)}
+td:first-child,th:first-child{text-align:left;font-family:inherit}
+tbody tr{transition:background .12s}
+tbody tr:hover{background:var(--card2)}
+tr:last-child td{border-bottom:none}
+.spark{height:28px;cursor:pointer}
+.rank{color:var(--faint);font-size:11px;margin-right:7px;font-family:var(--mono)}
+.win{color:var(--brass);font-weight:700}
+.note{color:var(--mut);font-size:12px;margin-top:16px;line-height:1.75;
+  background:var(--card);border:1px solid var(--bd);border-left:3px solid var(--brass);
+  border-radius:8px;padding:14px 18px}
+.trades{overflow-x:auto}
+#alltrades{max-height:440px;overflow-y:auto;border:1px solid var(--bd);border-radius:12px}
 #alltrades table{border:none;border-radius:0}
 #alltrades th{position:sticky;top:0;z-index:2}
-#alltrades::-webkit-scrollbar{width:10px}#alltrades::-webkit-scrollbar-thumb{background:#30363d;border-radius:5px}
-.tag{padding:1px 6px;border-radius:5px;font-size:11px}.tag.l{background:rgba(38,166,154,.15);color:var(--up)}.tag.s{background:rgba(239,83,80,.15);color:var(--dn)}
-.freq{background:#0d1117;color:var(--fg);border:1px solid var(--bd);border-radius:5px;padding:3px 9px;margin-right:5px;cursor:pointer;font-size:12px}
-.freq:hover{border-color:var(--acc)}.freqon{background:#1f6feb;border-color:#1f6feb;color:#fff}
-#modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:50}
+#alltrades::-webkit-scrollbar,#mtrades::-webkit-scrollbar{width:10px}
+#alltrades::-webkit-scrollbar-thumb,#mtrades::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:5px}
+.tag{padding:2px 8px;border-radius:6px;font-size:11px;font-weight:600}
+.tag.l{background:var(--up-bg);color:var(--up)}.tag.s{background:var(--dn-bg);color:var(--dn)}
+
+/* ---- 按钮/频率 ---- */
+.freq{background:var(--card2);color:var(--fg);border:1px solid var(--bd2);
+  border-radius:7px;padding:5px 11px;margin-right:6px;cursor:pointer;font-size:12px;
+  transition:all .12s;font-family:inherit}
+.freq:hover{border-color:var(--brass);color:var(--brass)}
+.freqon{background:var(--brass);border-color:var(--brass);color:#12161d;font-weight:600}
+.btn-mgmt{background:var(--card2);border:1px solid var(--bd2);color:var(--fg);
+  border-radius:8px;padding:7px 14px;cursor:pointer;font-size:13px;font-weight:500;transition:all .12s}
+.btn-mgmt:hover{border-color:var(--brass);color:var(--brass)}
+
+/* ---- KPI 指标格(总盘) ---- */
+.kpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;
+  background:var(--bd);border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+.kpi>div{background:var(--card2);padding:13px 15px}
+.kpi .lab{color:var(--mut);font-size:11px;margin-bottom:3px}
+.kpi .v{font-size:21px;font-weight:700;font-family:var(--mono);letter-spacing:-.01em;line-height:1.1}
+.kpi .s{color:var(--faint);font-size:10px;margin-top:2px;font-family:var(--mono)}
+
+/* ---- 弹窗 ---- */
+#modal{display:none;position:fixed;inset:0;background:rgba(5,8,12,.72);z-index:50}
 #modal.on{display:flex;align-items:center;justify-content:center}
-#mbox{background:var(--card);border:1px solid var(--bd);border-radius:12px;width:min(1060px,94vw);max-height:90vh;display:flex;flex-direction:column;padding:18px}
-#mhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-#mhead b{font-size:16px}#mclose{background:none;border:none;color:var(--mut);font-size:22px;cursor:pointer}
-#mchart{margin:6px 0 10px}#mtrades{overflow-y:auto;border:1px solid var(--bd);border-radius:8px}
+#mbox{background:var(--card);border:1px solid var(--bd2);border-radius:14px;
+  width:min(1060px,94vw);max-height:90vh;display:flex;flex-direction:column;padding:20px}
+#mhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+#mhead b{font-size:16px}#mclose{background:none;border:none;color:var(--mut);font-size:24px;cursor:pointer}
+#mchart{margin:6px 0 12px}#mtrades{overflow-y:auto;border:1px solid var(--bd);border-radius:10px}
 #mtrades th{position:sticky;top:0}
-.spark{cursor:pointer}
 </style></head><body>
-<h1>Quantifiction · 影子多策略对比</h1>
-<div class=sub><span id=stat><span class=dot></span>等待影子引擎…</span> · 欧易模拟盘行情 · 零真金 · 扣真实手续费</div>
-<div class=bar id=meta><button class=freq style=margin-left:auto onclick=openMgmt()>⚙ 策略管理</button></div>
+<div class=appbar><div class=appbar-in>
+  <div class=brand><span class=logo>Q</span><span>Quantifiction<br><small>影子多策略量化终端</small></span></div>
+  <div class=sub id=stat><span class=dot></span>等待影子引擎…</div>
+  <div class=spacer></div>
+  <span class=mut style=font-size:12px>欧易模拟盘 · 零真金 · 扣真实手续费</span>
+  <button class=btn-mgmt onclick=openMgmt()>⚙ 策略管理</button>
+</div></div>
 
-<div id=agentbox style=max-width:1200px;margin-bottom:16px></div>
+<div class=wrap>
+<div class=bar id=meta></div>
 
-<div id=totalbox style=max-width:1200px;margin-bottom:16px></div>
+<div id=totalbox style=margin-top:16px></div>
 
-<h2 style=margin-top:0>🔴 进行中的交易（实时浮动盈亏）</h2>
+<div id=agentbox></div>
+
+<h2>进行中的交易 · 实时浮动盈亏</h2>
 <div class=trades id=opentrades></div>
 
-<h2>各策略汇总（按扣费净利排序）</h2>
+<h2>各策略汇总 · 按扣费净利排序</h2>
 <table id=tbl><thead><tr>
 <th>策略</th><th>信号/模式</th><th>止盈%</th><th>笔数</th><th>胜率</th>
 <th>毛利$</th><th>手续费$</th><th>净利$</th><th>夏普</th><th>最大回撤$</th><th>净值曲线</th><th>开关</th>
@@ -385,6 +465,7 @@ h2{font-size:14px;color:var(--mut);margin:18px 0 8px;font-weight:600;max-width:1
 <div class=trades id=alltrades style="max-height:440px;overflow-y:auto;border:1px solid var(--bd);border-radius:10px"></div>
 
 <div class=note id=verdict></div>
+</div><!-- /.wrap -->
 
 <div id=mgmt onclick="if(event.target.id=='mgmt')closeMgmt()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.65);z-index:60">
  <div style="background:var(--card);border:1px solid var(--bd);border-radius:12px;width:min(880px,94vw);max-height:90vh;overflow-y:auto;padding:18px" onclick=event.stopPropagation()>
@@ -603,7 +684,7 @@ async function tick(){
     const dir=ag.veto?'否决交易':(ag.stance>0.05?'偏多':ag.stance<-0.05?'偏空':'中性');
     const ctx=ag.context||{};
     const intv=ag.interval_sec||900;const nextIn=Math.max(0,intv-age);
-    $('agentbox').innerHTML=`<div class=card style="border-color:#3b5bdb">
+    $('agentbox').innerHTML=`<div class=card style="border-left:3px solid var(--brass)">
       <div class=row style=margin:0><span><b>🤖 Agent 认知层观点</b> <span class=mut>(${ag.model} · 每${Math.round(intv/60)}分钟辩论 · ${Math.floor(age/60)}分${age%60}秒前 · 下次约${Math.floor(nextIn/60)}分${nextIn%60}秒后 · 成本¥${f(ag.cost_rmb,3)})</span></span>
       <span class="big ${sc}" style=font-size:20px>${dir} ${ag.veto?'':(ag.stance>=0?'+':'')+f(ag.stance,2)}</span></div>
       <div class=row style=margin:6px_0><span class=mut>信心 ${f(ag.conviction,2)} · 数据：资金费率 ${ctx.funding_rate}% · 多空比 ${ctx.long_short_ratio} · 24h ${ctx.chg24h_pct}% · OBI ${ctx.obi}</span></div>
@@ -632,40 +713,24 @@ async function tick(){
   if(T){
     const cls=T.net_usd>=0?'up':'dn';
     const ucls=(T.unrealized_usd||0)>=0?'up':'dn';
+    const rcls=(T.realized_usd||0)>=0?'up':'dn';
     const pnlLabel=T.net_usd>=0?'总盈利':'总亏损';
-    const pctLabel=T.return_pct>=0?'总盈利%':'总亏损%';
-    $('totalbox').innerHTML=`<div class=card style="border-color:${T.net_usd>=0?'#238636':'#7d3232'};background:linear-gradient(180deg,rgba(88,166,255,.05),transparent)">
-      <div class=row style="margin:0 0 12px;align-items:center;flex-wrap:wrap;gap:8px">
-        <b style=font-size:16px>💰 总盘资金情况</b>
-        <span class=mut style=font-size:12px>全 ${T.instruments} 标的 · ${T.strat||'?'} 策略 · 每策略名义 $${d.notional} · 已实现+浮动(按现价实时) · 扣真实手续费</span>
-        ${T.stale?'<span class=dn style=font-size:11px>⚠ 部分快照>30s</span>':'<span class=up style=font-size:11px>● 实时</span>'}
+    $('totalbox').innerHTML=`<div class=card style="border-color:${T.net_usd>=0?'rgba(63,185,138,.4)':'rgba(224,105,90,.4)'}">
+      <div class=row style="margin:0 0 14px;flex-wrap:wrap;gap:8px">
+        <b style=font-size:15px>💰 总盘资金情况</b>
+        <span style=margin-left:auto;font-size:11px;font-weight:600 class="${T.stale?'dn':'up'}">${T.stale?'⚠ 部分快照 >30s':'● 实时行情'}</span>
       </div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;background:var(--bd);border:1px solid var(--bd);border-radius:8px;overflow:hidden">
-        <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>起始资金</div>
-          <div style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>$${f(T.start_capital,2)}</div></div>
-        <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>当前资金(含浮动)</div>
-          <div class="${cls}" style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>$${f(T.current_capital,2)}</div></div>
-        <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>${pnlLabel}</div>
-          <div class="${cls}" style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>${T.net_usd>=0?'+':''}${f(T.net_usd,2)}</div>
-          <div class=mut style=font-size:10px>${T.return_pct>=0?'+':''}${f(T.return_pct,2)}%</div></div>
-        <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>已实现盈亏</div>
-          <div class="${(T.realized_usd||0)>=0?'up':'dn'}" style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>${(T.realized_usd||0)>=0?'+':''}${f(T.realized_usd,2)}</div>
-          <div class=mut style=font-size:10px>${T.trades} 笔平仓</div></div>
-        <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>浮动盈亏(实时)</div>
-          <div class="${ucls}" style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>${(T.unrealized_usd||0)>=0?'+':''}${f(T.unrealized_usd,3)}</div>
-          <div class=mut style=font-size:10px>${T.open_positions} 个持仓</div></div>
-        <div style=background:var(--card);padding:12px 14px>
-          <div class=mut style=font-size:11px>胜率 / 回撤</div>
-          <div style=font-size:21px;font-weight:600;font-variant-numeric:tabular-nums>${T.win_rate}%</div>
-          <div class=dn style=font-size:10px>回撤 ${f(T.max_dd_pct,2)}%</div></div>
+      <div style=color:var(--mut);font-size:12px;margin:-6px 0 12px>全 ${T.instruments} 标的(ETH·BTC·SOL) · ${T.strat||'?'} 策略 · 每策略名义 $${d.notional} · 已实现 + 浮动(按现价实时) · 扣真实手续费</div>
+      <div class=kpi>
+        <div><div class=lab>起始资金</div><div class=v>$${f(T.start_capital,2)}</div></div>
+        <div><div class=lab>当前资金 · 含浮动</div><div class="v ${cls}">$${f(T.current_capital,2)}</div></div>
+        <div><div class=lab>${pnlLabel}</div><div class="v ${cls}">${T.net_usd>=0?'+':''}${f(T.net_usd,2)}</div><div class="s ${cls}">${T.return_pct>=0?'+':''}${f(T.return_pct,2)}%</div></div>
+        <div><div class=lab>已实现盈亏</div><div class="v ${rcls}">${(T.realized_usd||0)>=0?'+':''}${f(T.realized_usd,2)}</div><div class=s>${T.trades} 笔平仓</div></div>
+        <div><div class=lab>浮动盈亏 · 实时</div><div class="v ${ucls}">${(T.unrealized_usd||0)>=0?'+':''}${f(T.unrealized_usd,3)}</div><div class=s>${T.open_positions} 个持仓</div></div>
+        <div><div class=lab>胜率 · 回撤</div><div class=v>${T.win_rate}%</div><div class="s dn">回撤 ${f(T.max_dd_pct,2)}%</div></div>
       </div>
-      <div style=margin-top:14px;font-size:12px;color:var(--mut)>📈 资金变化曲线（已实现累计，绿=盈利区 / 红=亏损区）· 浮动盈亏实时叠加于当前资金</div>
-      <div style=margin-top:4px>${bigCurve(T.curve)}</div>
+      <div style=margin-top:16px;font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.08em>资金变化曲线 · 已实现累计</div>
+      <div style=margin-top:6px>${bigCurve(T.curve)}</div>
     </div>`;
   }else{
     $('totalbox').innerHTML='<div class=card style=color:var(--mut)>💰 总盘资金：等待成交数据聚合…</div>';
