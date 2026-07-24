@@ -991,7 +991,12 @@ async function tick(){
     OT.map(t=>`<tr><td class=mut>${t.strategy}</td><td><span class="tag ${t.dir=='多'?'l':'s'}">${t.dir}</span></td><td>${hms(t.open_ms)}</td><td>${dur(t.hold)}</td><td>${t.qty??'—'}</td><td>${f(t.invested??100,0)}</td><td class="${cls((t.cur_value??100)-100)}" style=font-weight:700>${f(t.cur_value??100,3)}</td><td>${f(t.entry)}</td><td>${f(t.cur)}</td><td class=${cls(t.upnl_pct)}>${sg(t.upnl_pct,3)}%</td><td class=${cls(t.gross_usd)}>${sg(t.gross_usd)}</td><td class="${cls(t.net_if_close)}" style=font-weight:700>${sg(t.net_if_close)}</td><td class=mut>+${f(t.tp_target,2)}</td></tr>`).join('')+'</tbody></table>';
   }else $('opentrades').innerHTML='<div class=mut style=padding:14px;background:var(--card);border:1px solid var(--bd);border-radius:10px>当前无进行中的交易（策略均空仓，等待信号）</div>';
 
-  const S=d.strategies;
+  // 启用的排最上面，再各自按净利排序
+  const S=[...d.strategies].sort((a,b)=>{
+    const ea=a.enabled!==false?0:1, eb=b.enabled!==false?0:1;
+    if(ea!==eb)return ea-eb;
+    return (b.net_usd||0)-(a.net_usd||0);
+  });
   $('rows').innerHTML=S.map((s,i)=>`<tr style="${s.enabled===false?'opacity:.45':''}">
    <td style=cursor:pointer onclick="openDetail('${s.name}')" title=点击查看策略详情><span class=rank>#${i+1}</span><span style=text-decoration:underline;text-underline-offset:3px>${s.name}</span>${s.open?' <span class=mut>(持仓中)</span>':''}${s.enabled===false?' <span style=color:var(--dn);font-size:11px>[已停]</span>':''}</td>
    <td class=mut>${s.signal}/${s.mode=='mom'?'顺势':'反转'}</td>
