@@ -388,6 +388,23 @@ def make_strategies():
                 v = getattr(s, attr)
                 if v is not None:
                     setattr(s, attr, round(v * vs, 6))
+
+    # ---- 迭代110（复盘13h定制）：各标的专用策略，只在自己引擎运行，用精确值不再缩放 ----
+    # ETH：胜率63%、赢单MAE仅0.073%/亏单0.419%分离最干净→纯超紧止损0.15%。
+    # BTC：亏损已浅(0.246%)、病在43%胜率+超时漂移→紧止损+短持1h+高门槛0.55选择性。
+    # SOL：高波动高赔率(赢单MFE0.47%)、20笔深止损→中紧止损0.20%(赢单0.103%留空间)+高捕获。
+    if INST == "ETH-USDT-SWAP":
+        strats.append(Strategy("ETH专用·紧止", "meanrev1h", "mom", 0.5, 0.008, 7200,
+                     cooldown=300, sl_pct=0.0015, author="agent",
+                     trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032))
+    elif INST == "BTC-USDT-SWAP":
+        strats.append(Strategy("BTC专用·短持", "meanrev1h", "mom", 0.55, 0.008, 3600,
+                     cooldown=300, sl_pct=0.0015, author="agent",
+                     trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032))
+    elif INST == "SOL-USDT-SWAP":
+        strats.append(Strategy("SOL专用·中紧", "meanrev1h", "mom", 0.5, 0.008, 7200,
+                     cooldown=300, sl_pct=0.002, author="agent",
+                     trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032))
     return strats
 
 
