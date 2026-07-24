@@ -640,7 +640,7 @@ tr:last-child td{border-bottom:none}
 <div class=wrap>
 <div class=bar id=meta></div>
 
-<div id=pricecharts style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px"></div>
+<div id=pricecharts style="margin-top:14px"></div>
 
 <!-- ★ 进行中的交易：最想看的，置于最顶 -->
 <!-- 总盘资金：概要，点击展开（最顶） -->
@@ -895,7 +895,7 @@ let curInst='ETH';
 function switchInst(i){curInst=i;
   document.querySelectorAll('#instsel .freq').forEach(b=>b.classList.toggle('inston',b.dataset.i===i));
   const li=$('leadinst');if(li)li.textContent=i;
-  resetTrades();tick();}
+  resetTrades();tick();renderPrices();}
 async function tick(){
  try{
   const d=await(await fetch('/api/shadow?inst='+curInst)).json();
@@ -1022,9 +1022,9 @@ async function tick(){
  }catch(e){$('stat').innerHTML='<span class=dot></span>连接失败';document.querySelector('.sub').classList.add('stale');}
 }
 // ---- 三标的价格曲线 ----
-function priceSvg(curve,col){
+function priceSvg(curve,col,h){
   if(!curve||curve.length<2)return'<div class=mut style=padding:20px;text-align:center;font-size:12px>加载中…</div>';
-  const vals=curve.map(p=>p[1]),w=340,h=88,pad=6;
+  const vals=curve.map(p=>p[1]),w=1140,pad=6;h=h||88;
   const min=Math.min(...vals),max=Math.max(...vals),rng=(max-min)||1;
   const X=i=>(pad+i/(curve.length-1)*(w-2*pad)).toFixed(1);
   const Y=v=>(pad+(max-v)/rng*(h-2*pad)).toFixed(1);
@@ -1037,18 +1037,17 @@ function priceSvg(curve,col){
 async function renderPrices(){
   try{
     const d=await(await fetch('/api/price?hours=3')).json();
-    const order=['ETH','BTC','SOL'];
-    $('pricecharts').innerHTML=order.map(k=>{
-      const v=(d.insts||{})[k]||{};const up=(v.chg_pct||0)>=0;const col=up?'#3fb98a':'#e0695a';
-      return '<div class=card style="padding:12px 14px;margin:0">'+
-        '<div class=row style="margin:0 0 4px"><b style="font-size:14px">'+k+'-USDT</b>'+
-        '<span style="margin-left:auto;font-family:var(--mono)"><b style="font-size:15px">'+(v.last?f(v.last, k==="SOL"?3:2):"—")+'</b> '+
-        '<span class="'+(up?'up':'dn')+'" style="font-size:12px">'+(up?'+':'')+f(v.chg_pct||0,2)+'%</span></span></div>'+
-        '<div class=mut style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">近3小时</div>'+
-        priceSvg(v.curve,col)+'</div>';
-    }).join('');
+    // 只展示当前选中的标的
+    const k=curInst;const v=(d.insts||{})[k]||{};
+    const up=(v.chg_pct||0)>=0;const col=up?'#3fb98a':'#e0695a';
+    $('pricecharts').innerHTML='<div class=card style="padding:14px 18px;margin:0">'+
+      '<div class=row style="margin:0 0 6px"><b style="font-size:15px">'+k+'-USDT · 价格走势</b>'+
+      '<span style="margin-left:auto;font-family:var(--mono)"><b style="font-size:19px">'+(v.last?f(v.last, k==="SOL"?3:2):"—")+'</b> '+
+      '<span class="'+(up?'up':'dn')+'" style="font-size:14px;font-weight:600">'+(up?'+':'')+f(v.chg_pct||0,2)+'%</span></span></div>'+
+      '<div class=mut style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">近 3 小时</div>'+
+      priceSvg(v.curve,col,150)+'</div>';
   }catch(e){}
 }
-renderPrices();setInterval(renderPrices,10000);
+renderPrices();setInterval(renderPrices,8000);
 tick();setInterval(tick,3000);
 </script></body></html>"""
