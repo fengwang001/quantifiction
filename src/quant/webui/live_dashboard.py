@@ -401,6 +401,43 @@ def daily_detail(date: str) -> JSONResponse:
     })
 
 
+@app.get("/api/price")
+def price(hours: float = 3.0) -> JSONResponse:
+    """三标的近 N 小时价格曲线（从 tick 流读，下采样≤120点）。"""
+    import glob
+    import os
+    now = time.time() * 1000
+    cutoff = now - hours * 3600 * 1000
+    tickmap = {"ETH": None, "BTC": "BTC-USDT-SWAP_", "SOL": "SOL-USDT-SWAP_"}
+    out = {}
+    for name, pfx in tickmap.items():
+        if pfx:
+            fs = sorted(glob.glob(f"data/ticks/{pfx}*.jsonl"))
+        else:
+            fs = sorted([f for f in glob.glob("data/ticks/*.jsonl")
+                         if os.path.basename(f)[0].isdigit()])
+        pts = []
+        for f in fs[-2:]:
+            try:
+                for line in Path(f).read_text(encoding="utf-8").strip().split("\n"):
+                    t = json.loads(line)
+                    if t.get("ts", 0) >= cutoff:
+                        pts.append([t["ts"], t["mid"]])
+            except Exception:  # noqa: BLE001
+                continue
+        pts.sort(key=lambda x: x[0])
+        step = max(1, len(pts) // 120)
+        ds = pts[::step]
+        if pts and ds[-1] != pts[-1]:
+            ds.append(pts[-1])
+        chg = 0.0
+        if len(ds) >= 2 and ds[0][1]:
+            chg = (ds[-1][1] - ds[0][1]) / ds[0][1] * 100
+        out[name] = {"curve": ds, "last": ds[-1][1] if ds else 0,
+                     "chg_pct": round(chg, 2)}
+    return JSONResponse({"hours": hours, "insts": out})
+
+
 @app.get("/api/shadow")
 def shadow(inst: str = "ETH") -> JSONResponse:
     sf = _state_file(inst)
@@ -602,6 +639,8 @@ tr:last-child td{border-bottom:none}
 
 <div class=wrap>
 <div class=bar id=meta></div>
+
+<div id=pricecharts style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:14px"></div>
 
 <!-- ★ 进行中的交易：最想看的，置于最顶 -->
 <!-- 总盘资金：概要，点击展开（最顶） -->
@@ -982,5 +1021,34 @@ async function tick(){
   $('verdict').innerHTML=v;
  }catch(e){$('stat').innerHTML='<span class=dot></span>连接失败';document.querySelector('.sub').classList.add('stale');}
 }
+// ---- 三标的价格曲线 ----
+function priceSvg(curve,col){
+  if(!curve||curve.length<2)return'<div class=mut style=padding:20px;text-align:center;font-size:12px>加载中…</div>';
+  const vals=curve.map(p=>p[1]),w=340,h=88,pad=6;
+  const min=Math.min(...vals),max=Math.max(...vals),rng=(max-min)||1;
+  const X=i=>(pad+i/(curve.length-1)*(w-2*pad)).toFixed(1);
+  const Y=v=>(pad+(max-v)/rng*(h-2*pad)).toFixed(1);
+  const pts=vals.map((v,i)=>X(i)+','+Y(v)).join(' ');
+  const last=vals[vals.length-1];
+  const area='<polygon points="'+X(0)+','+(h-pad)+' '+pts+' '+X(curve.length-1)+','+(h-pad)+'" fill="'+col+'" opacity="0.10" />';
+  const dot='<circle cx="'+X(curve.length-1)+'" cy="'+Y(last)+'" r="2.6" fill="'+col+'" />';
+  return '<svg width="100%" height="'+h+'" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" style="display:block">'+area+'<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="1.6" />'+dot+'</svg>';
+}
+async function renderPrices(){
+  try{
+    const d=await(await fetch('/api/price?hours=3')).json();
+    const order=['ETH','BTC','SOL'];
+    $('pricecharts').innerHTML=order.map(k=>{
+      const v=(d.insts||{})[k]||{};const up=(v.chg_pct||0)>=0;const col=up?'#3fb98a':'#e0695a';
+      return '<div class=card style="padding:12px 14px;margin:0">'+
+        '<div class=row style="margin:0 0 4px"><b style="font-size:14px">'+k+'-USDT</b>'+
+        '<span style="margin-left:auto;font-family:var(--mono)"><b style="font-size:15px">'+(v.last?f(v.last, k==="SOL"?3:2):"—")+'</b> '+
+        '<span class="'+(up?'up':'dn')+'" style="font-size:12px">'+(up?'+':'')+f(v.chg_pct||0,2)+'%</span></span></div>'+
+        '<div class=mut style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px">近3小时</div>'+
+        priceSvg(v.curve,col)+'</div>';
+    }).join('');
+  }catch(e){}
+}
+renderPrices();setInterval(renderPrices,10000);
 tick();setInterval(tick,3000);
 </script></body></html>"""
