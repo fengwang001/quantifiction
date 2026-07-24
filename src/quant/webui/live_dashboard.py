@@ -340,6 +340,67 @@ def _total_portfolio() -> dict:
     }
 
 
+def _all_trades() -> list:
+    """跨三标的收集全部成交(含标的标签)。"""
+    out = []
+    for inst, sfx in _INSTS.items():
+        pf = Path(f"data/shadow_persist{sfx}.json")
+        if not pf.exists():
+            continue
+        try:
+            d = json.loads(pf.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            continue
+        for s in d.get("strategies", []):
+            for t in s.get("trades", []):
+                out.append({**t, "strategy": s["name"], "inst": inst})
+    return out
+
+
+@app.get("/api/daily")
+def daily() -> JSONResponse:
+    """每日收益汇总：跨三标的按本地日期聚合净利/笔数/胜率。"""
+    days = {}
+    for t in _all_trades():
+        d = time.strftime("%Y-%m-%d", time.localtime(t.get("ts", 0) / 1000))
+        e = days.setdefault(d, {"net": 0.0, "trades": 0, "wins": 0, "fee": 0.0})
+        e["net"] += t.get("net_usd", 0.0)
+        e["fee"] += t.get("fee_usd", 0.0)
+        e["trades"] += 1
+        if t.get("net_usd", 0.0) > 0:
+            e["wins"] += 1
+    out = {d: {"net": round(v["net"], 2), "trades": v["trades"],
+               "wins": v["wins"], "fee": round(v["fee"], 2),
+               "win_rate": round(v["wins"] / v["trades"] * 100, 0) if v["trades"] else 0}
+           for d, v in days.items()}
+    return JSONResponse({"days": out})
+
+
+@app.get("/api/daily/detail")
+def daily_detail(date: str) -> JSONResponse:
+    """某日详情：当日全部成交(按标的/策略) + 分标的、分策略小计。"""
+    trades = [t for t in _all_trades()
+              if time.strftime("%Y-%m-%d", time.localtime(t.get("ts", 0) / 1000)) == date]
+    trades.sort(key=lambda x: x.get("ts", 0), reverse=True)
+    by_inst, by_strat = {}, {}
+    for t in trades:
+        for key, agg in (("inst", by_inst), ("strategy", by_strat)):
+            k = t.get(key, "?")
+            a = agg.setdefault(k, {"net": 0.0, "trades": 0, "wins": 0})
+            a["net"] += t.get("net_usd", 0.0)
+            a["trades"] += 1
+            if t.get("net_usd", 0.0) > 0:
+                a["wins"] += 1
+    rnd = lambda m: {k: {"net": round(v["net"], 2), "trades": v["trades"],
+                         "wins": v["wins"]} for k, v in m.items()}
+    net = round(sum(t.get("net_usd", 0.0) for t in trades), 2)
+    return JSONResponse({
+        "date": date, "net": net, "count": len(trades),
+        "by_inst": rnd(by_inst), "by_strat": rnd(by_strat),
+        "trades": trades[:200],
+    })
+
+
 @app.get("/api/shadow")
 def shadow(inst: str = "ETH") -> JSONResponse:
     sf = _state_file(inst)
@@ -365,6 +426,12 @@ def shadow(inst: str = "ETH") -> JSONResponse:
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return _HTML
+
+
+@app.get("/calendar", response_class=HTMLResponse)
+def calendar_page() -> str:
+    from quant.webui.calendar_view import CALENDAR_HTML
+    return CALENDAR_HTML
 
 
 _HTML = """<!doctype html><html lang=zh><head><meta charset=utf-8>
@@ -529,6 +596,7 @@ tr:last-child td{border-bottom:none}
   </div>
   <div class=spacer></div>
   <span class=mut style=font-size:12px>欧易模拟盘 · 零真金 · 扣真实手续费</span>
+  <a href=/calendar class=btn-mgmt style=text-decoration:none>📅 每日收益</a>
   <button class=btn-mgmt onclick=openMgmt()>⚙ 策略管理</button>
 </div></div>
 
