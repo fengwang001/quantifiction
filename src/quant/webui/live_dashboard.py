@@ -317,7 +317,7 @@ def _total_portfolio() -> dict:
     # 资金账户视角：每策略名义 $100 子账户，总盘起始 = 策略数 × 100
     notional = 100.0
     n_strat = len(strat_names)
-    start_cap = n_strat * notional
+    start_cap = 2000.0   # 固定本金$2000（迭代111：Agent信心动态定仓）
     cur_cap = start_cap + total_pnl
     ret_pct = (total_pnl / start_cap * 100) if start_cap else 0.0
     mdd_pct = (mdd / start_cap * 100) if start_cap else 0.0
