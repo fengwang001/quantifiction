@@ -1041,7 +1041,8 @@ async function renderPrices(){
     const k=curInst;const v=(d.insts||{})[k]||{};
     const up=(v.chg_pct||0)>=0;const col=up?'#3fb98a':'#e0695a';
     $('pricecharts').innerHTML='<div class=card style="padding:14px 18px;margin:0">'+
-      '<div class=row style="margin:0 0 6px"><b style="font-size:15px">'+k+'-USDT · 价格走势</b>'+
+      '<div class=row style="margin:0 0 6px"><b style="font-size:15px">'+k+'-USDT 永续合约 · 价格走势</b>'+
+      '<span class=mut style="font-size:11px;margin-left:8px">(永续价，非现货，两者约差$1基差)</span>'+
       '<span style="margin-left:auto;font-family:var(--mono)"><b style="font-size:19px">'+(v.last?f(v.last, k==="SOL"?3:2):"—")+'</b> '+
       '<span class="'+(up?'up':'dn')+'" style="font-size:14px;font-weight:600">'+(up?'+':'')+f(v.chg_pct||0,2)+'%</span></span></div>'+
       '<div class=mut style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">近 3 小时</div>'+
