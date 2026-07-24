@@ -420,6 +420,20 @@ def make_strategies():
         strats.append(Strategy("SOL专用·中紧", "meanrev1h", "mom", 0.5, 0.008, 7200,
                      cooldown=300, sl_pct=0.002, author="agent",
                      trail_arm=0.0025, trail_frac=0.25, fee_pct=0.00032))
+
+    # ---- 长线策略（用户指令）：各币一个宽幅长持——不被日常波动触发，检验长线能否获利 ----
+    # 止损2.2-3.2%为日常波动(~1.4%)近2倍，简单波动碰不到；止盈4.5-6.5%让利润跑数天；
+    # 持仓上限7天；冷却1h避免频繁进出；30m动量顺势入场；浮盈2%武装追踪锁峰值50%；maker费。
+    LONG_CFG = {
+        "ETH-USDT-SWAP": ("ETH长线", 0.05, 0.025),
+        "BTC-USDT-SWAP": ("BTC长线", 0.045, 0.022),
+        "SOL-USDT-SWAP": ("SOL长线", 0.065, 0.032),
+    }
+    if INST in LONG_CFG:
+        nm, tp, sl = LONG_CFG[INST]
+        strats.append(Strategy(nm, "mom30m", "mom", 0.5, tp, 604800,
+                     cooldown=3600, sl_pct=sl, author="agent",
+                     trail_arm=0.02, trail_frac=0.5, fee_pct=0.00032))
     return strats
 
 
