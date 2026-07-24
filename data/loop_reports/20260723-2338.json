@@ -1,0 +1,10 @@
+{
+ "iteration": 92,
+ "ts": 1784821098177,
+ "carry_loss_predicted": "carry首仓平仓-0.0779应验预测：3.51h累计费+0.0021却付手续费0.08。坐实0.005%阈值太低，费率没累够就normalize",
+ "carry_fix": "证据驱动优化：ENTER_ABS 0.005%→0.02%/8h(4倍)，EXIT 0.002%→0.005%。只在费率够高、持仓能收够覆盖两腿费(0.08%)时开仓。carry仅极端费率regime有利",
+ "btc_maker_winner": "BTC maker 11笔+1.4夏普+0.43浮现为最优候选，跨多regime稳住走强，夏普全场最高。需攒到30笔",
+ "eth_sol_bleed": "ETH(1h/maker/高捕获全负)SOL全线负，regime又不利均值回归",
+ "decision": "修carry阈值(证据支撑)+记BTC maker为赢家候选。零新增策略",
+ "stop_check": "BTC maker最优11/30，carry阈值已优化待极端费率窗口"
+}

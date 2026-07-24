@@ -1,0 +1,9 @@
+{
+ "iteration": 58,
+ "ts": 1784734458973,
+ "decisive_evidence": "费用墙量化坐实：顶部策略免费毛利全为正(非对称·追踪止损+1.09/均值回归·优化+0.60/比例·紧止损+0.16)，taker费0.10%吃光edge。策略有真实正edge，费用是唯一障碍",
+ "maker_insight": "均值回归天然被动成交(极值挂限价entry maker+TP挂限价exit maker)，两腿可拿maker费0.04%往返。动量策略要追突破不适合maker",
+ "action": "费率参数化fee_pct；派生「均值回归·maker」=均值回归·优化出场 仅fee0.10%→0.04%，检验跨过费用墙能否翻正。注：假设maker成交(未建模非成交/滑点)，SL腿实盘taker故偏乐观，作方向性验证",
+ "caveat": "现有策略默认taker费率不变(向后兼容)；maker需真实限价单实现，此为影子验证",
+ "stop_check": "继续，验证maker变体能否首次稳定翻正"
+}

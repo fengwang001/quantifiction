@@ -1,0 +1,10 @@
+{
+ "iteration": 91,
+ "ts": 1784819233731,
+ "oscillation": "候选盈亏平衡附近震荡：ETH 1h+0.74→+0.1(第27笔又亏市场或再趋势)夏≈0，SOL全线回落。BTC maker 10笔70%+0.7夏+0.29多轮稳住独秀",
+ "btc_maker_steadiest": "BTC maker是最稳候选，多个regime守住正值——稳定的初步证据",
+ "carry_exiting": "ETH收多3.37h累计+0.0021费率减弱-0.00217逼近离场线，下轮或离场验证上轮小亏预测",
+ "honest_91": "91轮反复结论：均值回归edge真实但薄，净值随震荡/趋势regime摆，无单一候选牢固稳定跨进明确盈利(30+笔)。BTC maker最接近",
+ "decision": "零改动——候选震荡无牢固赢家不churn，BTC maker/ETH 1h继续积累，carry走完看结果",
+ "stop_check": "BTC maker最稳但样本10笔，各候选震荡未牢固达标"
+}

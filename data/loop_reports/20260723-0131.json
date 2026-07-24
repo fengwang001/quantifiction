@@ -1,0 +1,10 @@
+{
+ "iteration": 62,
+ "ts": 1784741475088,
+ "reversal_clarifies": "优化版taker从+0.240回落-0.195(一笔坏单)，印证上轮regime运气警示。但毛利稳定正(+1.805)",
+ "DEFINITIVE_ARITHMETIC": "edge=毛1.805/20笔=+0.090/笔，恰卡在maker费0.04与taker费0.10之间。taker净/笔=0.090-0.100=-0.010永远微负；maker净/笔=0.090-0.040=+0.050稳定正",
+ "conclusion": "整个项目最重要结论：策略edge(0.09)卡在两费率之间，taker数学上永不稳定盈利，仅maker可行。均值回归·maker 5笔+0.931，推算30笔≈+1.5",
+ "production_directive": "实盘必须限价挂单(maker)绝不市价单(taker)，否则edge被费吃平",
+ "decision": "零新增——结论已定，让均值回归·maker跑满30笔正式达停止条件",
+ "stop_check": "maker版是唯一达标路径，需30笔(现5)"
+}

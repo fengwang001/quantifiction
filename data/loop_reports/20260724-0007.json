@@ -1,0 +1,10 @@
+{
+ "iteration": 93,
+ "ts": 1784822836553,
+ "KEY_ETH1h_failed": "ETH 1h首次跑满30笔却净-0.4未达标。从峰值+2.05侵蚀到30笔-0.4，证明峰值是regime运气，跨regime完整30笔真实值微负。坐实均值回归edge太薄被手续费+趋势亏损吃平",
+ "btc_maker": "BTC maker仍唯一净正候选11笔+1.4夏+0.43 73%，但这轮无新单卡11笔。BTC高捕获8笔+0.2也正。ETH/SOL全负",
+ "carry_fix_works": "阈值提高后当前费率全低于0.02%新阈值，carry正确休眠不再中等费率亏损单，修正生效",
+ "honest": "93轮诚实结论：均值回归edge真实但薄，跨regime 30笔样本被吃平(ETH1h -0.4实证)。BTC maker是例外但样本小",
+ "decision": "零改动——ETH1h达标失败是真实结果接受，BTC maker等新单，carry休眠等极端费率",
+ "stop_check": "ETH1h 30笔失败(-0.4)，BTC maker最优但仅11笔"
+}

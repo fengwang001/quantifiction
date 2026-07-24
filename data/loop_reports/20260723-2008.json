@@ -1,0 +1,9 @@
+{
+ "iteration": 85,
+ "ts": 1784808490166,
+ "MILESTONE_carry": "carry首次开仓！ETH费率-0.00578突破阈值0.005%，carry在ETH开多仓收负资金费(持0.39h累计+0.0003)。休眠~20轮后第二条edge(资金费)正式启动",
+ "mean_reversion": "配置持续验证少量新单：ETH 1h 24笔75%+2.05最接近30笔/BTC全族正/SOL高捕获4战4胜+0.86夏普+4.17",
+ "two_edges_live": "两条结构性edge都活着：均值回归在ETH/BTC/SOL各自验证；carry刚在ETH启动",
+ "decision": "零新增——carry刚开仓观察收费，均值回归攒样本到30",
+ "stop_check": "carry启动/ETH1h 24-30/SOL高捕获4/4，双edge推进"
+}

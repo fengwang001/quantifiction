@@ -1,0 +1,9 @@
+{
+ "iteration": 66,
+ "ts": 1784769823318,
+ "carry_waiting": "carry 0笔空仓，费率全低于阈值(ETH0.7/BTC4.2/SOL2.6%年化)，正确等待非故障",
+ "fee_reality": "核算中性carry真实费用更严峻：spot腿OKX费率高(~0.08%/边)，两腿往返约0.20%非0.08%。BTC4.2%年化需持~18天高费率才覆盖",
+ "META_CONCLUSION": "跨两信号家族66轮结论：微观结构edge被竞争掉(效率墙)；carry edge结构存在但当前费率太低+spot腿贵同样打不过费。当前平静低波动低资金费regime对00零售费率无干净可扣费edge",
+ "discipline": "拒绝降阈值强凑交易——会重复微观结构错误(edge<费越交易越亏)，1215笔血亏教训。无真实edge窗口就不交易",
+ "stop_check": "当前regime无fee-beating edge，carry等费率窗口，不强凑"
+}

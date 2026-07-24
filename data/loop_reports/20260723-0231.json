@@ -1,0 +1,10 @@
+{
+ "iteration": 64,
+ "ts": 1784745073161,
+ "maker_still_positive": "均值回归·maker 10笔70%净+0.633夏普+0.174仍正，但从+1.353回落(近8笔夹3笔-0.37 SL)",
+ "edge_thinning_WARNING": "优化版毛利edge从+0.102(23笔)降至+0.068(25笔)。重算:taker净/笔=0.068-0.10=-0.032清晰负(印证-0.793); maker净/笔=0.068-0.04=+0.028仍正但薄。maker30笔推算从+1.86降至+0.84",
+ "interpretation": "早期高edge有regime运气，真实edge向更薄回归。maker仍正但安全边际窄",
+ "key_question": "edge稳定0.068(maker稳赚)还是继续下滑逼近maker费0.04(连maker也吃平)？taker已明确出局",
+ "decision": "零新增盯edge企稳——变薄是信号本性无策略可修，只能观察；冲刺不加策略",
+ "stop_check": "maker唯一候选10/30，edge企稳是关键"
+}

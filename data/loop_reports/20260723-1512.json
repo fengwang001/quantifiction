@@ -1,0 +1,9 @@
+{
+ "iteration": 74,
+ "ts": 1784790770588,
+ "sol_drag_confirmed": "均值回归族按标的分解决定性坐实：ETH 55笔+1.59 / BTC 22笔+1.92 / SOL 55笔-5.83。均值回归在ETH+BTC稳盈，SOL上4变体全亏(高波动打穿买跌逻辑)。SOL亏损吃光ETH+BTC盈利还倒亏",
+ "lesson": "标的选择性——均值回归需低波动标的(ETH/BTC)，不适合高波动SOL",
+ "action": "停engine-sol，实验聚焦ETH+BTC(均值回归有edge)，SOL数据保留作证据",
+ "carry_deepening": "负费率继续加深BTC-0.00268 SOL-0.00171逼近阈值，若突破carry首次开多",
+ "stop_check": "ETH+BTC均值回归聚焦，等高捕获样本"
+}

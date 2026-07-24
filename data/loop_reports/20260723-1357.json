@@ -1,0 +1,10 @@
+{
+ "iteration": 70,
+ "ts": 1784786248597,
+ "note": "定时循环(cron 431bd25b)首轮",
+ "high_capture_promising": "均值回归·高捕获(锁75%)5笔4胜净+0.704 edge+0.181，trail捕获+0.186>maker锁60%的+0.160，初验有效但5笔小样本",
+ "maker": "均值回归·maker 32笔20胜净+0.058 edge+0.042仍费用墙边际",
+ "funding_shift": "BTC/SOL资金费转负(-0.00058/-0.00072)ETH仍正(+0.00106)，regime变化苗头，仍<carry阈值0.005%",
+ "decision": "零新增——高捕获5笔待更多样本，carry等窗口",
+ "stop_check": "继续"
+}

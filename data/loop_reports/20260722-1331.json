@@ -1,0 +1,9 @@
+{
+ "iteration": 37,
+ "ts": 1784698274746,
+ "sample_total": 1317,
+ "milestone": "首个净值转正且持续的策略：追踪灵敏版 7笔6胜(86%) +0.22$——时间尺度→追踪→灵敏线三代证据链的结晶",
+ "closes": "灵敏trail+0.250(MFE0.48)/Agent增强time+0.388(MFE0.56)/活跃过滤sl-0.718",
+ "stop_condition_progress": "灵敏版7/30笔净已正",
+ "decision": "零改动"
+}

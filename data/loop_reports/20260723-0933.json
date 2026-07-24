@@ -1,0 +1,10 @@
+{
+ "iteration": 67,
+ "ts": 1784770410496,
+ "unchanged": "连续第3轮相同regime：carry 0笔空仓(BTC0.0040%最高仍<阈值)，微观结构费用墙无解",
+ "btc_creep": "BTC费率缓升0.0038→0.0040，离触发0.005%尚差",
+ "honest": "regime未变即无新东西可评估，每30min重跑得同一答案。决定结果的是市场状态非策略，几十分钟不会变",
+ "discipline": "拒绝降阈值/加变体强凑——会重蹈血亏。无edge窗口不动手",
+ "recommendation": "建议改为条件触发评估(费率破0.005% 或 波动率回升)而非固定30min轮询",
+ "stop_check": "当前regime无fee-beating edge，等窗口"
+}

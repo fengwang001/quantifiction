@@ -19,7 +19,9 @@ build/
 .pytest_cache/
 
 # 数据（自录 tick / 本地落盘，勿入库）
-data/
+# data 下大文件(persist/ticks/state)不入库；例外：评估报告入库(循环记忆/历史)
+data/*
+!data/loop_reports/
 *.parquet
 
 # 工具
